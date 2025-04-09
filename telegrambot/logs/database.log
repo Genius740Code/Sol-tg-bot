@@ -1,0 +1,98 @@
+2025-04-09T15:29:36.538Z info: Start command received from user: 7499348704
+2025-04-09T15:29:46.559Z error: Error fetching user: Operation `users.findOne()` buffering timed out after 10000ms
+2025-04-09T15:29:46.560Z error: Start handler error: Failed to fetch user
+2025-04-09T15:30:00.193Z error: Scheduled price update error: Failed to get SOL price
+2025-04-09T15:30:01.306Z error: MongoDB Connection Error: connect ECONNREFUSED ::1:27017, connect ECONNREFUSED 127.0.0.1:27017
+2025-04-09T15:43:51.493Z info: Starting bot...
+2025-04-09T15:43:51.964Z info: MongoDB Connected
+2025-04-09T15:43:51.965Z info: Connected to MongoDB
+2025-04-09T15:43:51.965Z info: Database connection established
+2025-04-09T15:43:58.507Z info: Start command received from user: 7499348704
+2025-04-09T15:43:58.966Z info: New user created with ID: 7499348704
+2025-04-09T15:44:00.066Z info: Scheduled price update: SOL = $106.4
+2025-04-09T15:44:31.918Z info: Start command received from user: 7499348704
+2025-04-09T15:45:00.119Z info: Scheduled price update: SOL = $106.4
+2025-04-09T15:45:04.263Z error: Token info handler error: Failed to get token price information
+2025-04-09T15:46:00.129Z info: Scheduled price update: SOL = $106.39
+2025-04-09T15:47:00.111Z info: Scheduled price update: SOL = $106.37
+2025-04-09T15:47:18.799Z info: SIGINT received. Stopping bot...
+2025-04-09T15:47:18.825Z info: Bot started successfully
+2025-04-09T15:48:00.150Z info: Scheduled price update: SOL = $106.38
+2025-04-09T15:49:00.136Z info: Scheduled price update: SOL = $106.39
+2025-04-09T15:50:00.117Z info: Scheduled price update: SOL = $106.45
+2025-04-09T15:51:00.105Z info: Scheduled price update: SOL = $106.49
+2025-04-09T15:52:00.109Z info: Scheduled price update: SOL = $106.51
+2025-04-09T15:53:00.105Z info: Scheduled price update: SOL = $106.59
+2025-04-09T15:54:00.173Z info: Scheduled price update: SOL = $106.62
+2025-04-09T15:55:00.107Z info: Scheduled price update: SOL = $106.62
+2025-04-09T15:56:00.117Z info: Scheduled price update: SOL = $106.65
+2025-04-09T15:57:00.124Z info: Scheduled price update: SOL = $106.62
+2025-04-09T15:58:00.103Z info: Scheduled price update: SOL = $106.61
+2025-04-09T15:59:00.130Z info: Scheduled price update: SOL = $106.54
+2025-04-09T16:00:00.107Z info: Scheduled price update: SOL = $106.51
+2025-04-09T16:01:00.113Z info: Scheduled price update: SOL = $106.48
+2025-04-09T16:02:00.135Z info: Scheduled price update: SOL = $106.43
+2025-04-09T16:03:00.129Z info: Scheduled price update: SOL = $106.4
+2025-04-09T16:04:00.137Z info: Scheduled price update: SOL = $106.51
+2025-04-09T16:05:00.111Z info: Scheduled price update: SOL = $106.51
+2025-04-09T16:06:00.091Z info: Scheduled price update: SOL = $106.5
+2025-04-09T16:07:00.404Z info: Scheduled price update: SOL = $106.51
+2025-04-09T16:08:00.099Z info: Scheduled price update: SOL = $106.51
+2025-04-09T16:09:00.141Z info: Scheduled price update: SOL = $106.54
+2025-04-09T16:10:00.099Z info: Scheduled price update: SOL = $106.65
+2025-04-09T16:11:00.126Z info: Scheduled price update: SOL = $106.69
+2025-04-09T16:12:00.104Z info: Scheduled price update: SOL = $106.67
+2025-04-09T16:13:00.107Z info: Scheduled price update: SOL = $106.7
+2025-04-09T16:14:00.136Z info: Scheduled price update: SOL = $106.75
+2025-04-09T16:15:00.101Z info: Scheduled price update: SOL = $106.74
+2025-04-09T16:16:00.101Z info: Scheduled price update: SOL = $106.8
+2025-04-09T16:17:00.119Z info: Scheduled price update: SOL = $106.88
+2025-04-09T16:18:00.117Z info: Scheduled price update: SOL = $106.88
+2025-04-09T16:19:00.127Z info: Scheduled price update: SOL = $106.92
+2025-04-09T16:20:00.102Z info: Scheduled price update: SOL = $106.92
+2025-04-09T16:21:00.105Z info: Scheduled price update: SOL = $106.94
+2025-04-09T16:22:00.131Z info: Scheduled price update: SOL = $106.92
+2025-04-09T16:23:00.099Z info: Scheduled price update: SOL = $106.88
+2025-04-09T16:24:00.138Z info: Scheduled price update: SOL = $106.89
+2025-04-09T16:25:00.113Z info: Scheduled price update: SOL = $106.9
+2025-04-09T16:26:00.097Z info: Scheduled price update: SOL = $106.86
+2025-04-09T16:27:00.105Z info: Scheduled price update: SOL = $106.84
+2025-04-09T16:28:00.093Z info: Scheduled price update: SOL = $106.83
+2025-04-09T16:29:00.136Z info: Scheduled price update: SOL = $106.85
+2025-04-09T16:30:00.101Z info: Scheduled price update: SOL = $106.86
+2025-04-09T16:31:00.101Z info: Scheduled price update: SOL = $106.79
+2025-04-09T16:32:00.117Z info: Scheduled price update: SOL = $106.77
+2025-04-09T16:33:00.114Z info: Scheduled price update: SOL = $106.77
+2025-04-09T16:34:00.149Z info: Scheduled price update: SOL = $106.83
+2025-04-09T16:35:00.117Z info: Scheduled price update: SOL = $106.85
+2025-04-09T16:35:38.233Z info: Starting bot...
+2025-04-09T16:35:39.303Z info: MongoDB Connected
+2025-04-09T16:35:39.304Z info: Connected to MongoDB
+2025-04-09T16:35:39.305Z info: Database connection established
+2025-04-09T16:36:00.103Z info: Scheduled price update: SOL = $106.96
+2025-04-09T16:36:00.154Z info: Scheduled price update: SOL = $106.96
+2025-04-09T16:36:22.199Z info: Start command received from user: 7499348704
+2025-04-09T16:36:22.446Z error: Error creating user: Failed to encrypt data
+2025-04-09T16:36:22.446Z error: Error creating/fetching user: Failed to create user
+2025-04-09T16:36:38.029Z info: Start command received from user: 7499348704
+2025-04-09T16:36:38.159Z error: Error creating user: Failed to encrypt data
+2025-04-09T16:36:38.159Z error: Error creating/fetching user: Failed to create user
+2025-04-09T16:36:42.046Z info: SIGINT received. Stopping bot...
+2025-04-09T16:37:00.145Z info: Scheduled price update: SOL = $107
+2025-04-09T16:37:08.964Z info: Starting bot...
+2025-04-09T16:37:09.462Z info: MongoDB Connected
+2025-04-09T16:37:09.462Z info: Connected to MongoDB
+2025-04-09T16:37:09.463Z info: Database connection established
+2025-04-09T16:37:13.918Z info: Start command received from user: 7499348704
+2025-04-09T16:37:14.203Z error: Error creating user: Failed to encrypt data
+2025-04-09T16:37:14.204Z error: Error creating/fetching user: Failed to create user
+2025-04-09T16:37:17.974Z info: SIGINT received. Stopping bot...
+2025-04-09T16:37:18.006Z info: Bot started successfully
+2025-04-09T16:38:00.095Z info: Scheduled price update: SOL = $107.07
+2025-04-09T16:38:00.120Z info: Scheduled price update: SOL = $107.07
+2025-04-09T16:39:13.342Z info: Starting bot...
+2025-04-09T16:39:14.383Z info: MongoDB Connected
+2025-04-09T16:39:14.384Z info: Connected to MongoDB
+2025-04-09T16:39:14.384Z info: Database connection established
+2025-04-09T16:40:00.155Z info: Scheduled price update: SOL = $107.09
+2025-04-09T16:40:03.408Z info: Start command received from user: 7499348704
