@@ -34,6 +34,16 @@ const referralHandler = async (ctx) => {
     message += `🔗 Your Referral Link:\n\`${referralLink}\`\n\n`;
     message += `📋 Referral Code: \`${referralInfo.referralCode}\`\n\n`;
     
+    // Add custom referral codes if any
+    if (referralInfo.customReferralCodes && referralInfo.customReferralCodes.length > 0) {
+      message += `📝 *Your Custom Referral Codes:*\n`;
+      referralInfo.customReferralCodes.forEach(codeObj => {
+        const customLink = `https://t.me/${botUsername}?start=${codeObj.code}`;
+        message += `• \`${codeObj.code}\` - [Use Link](${customLink})\n`;
+      });
+      message += `\n`;
+    }
+    
     // Add referral reward info with updated percentages
     message += `💰 *Rewards*\n`;
     message += `• You earn ${REFERRER_EARNING_PERCENTAGE}% of your referrals' trading fees\n`;
@@ -67,16 +77,22 @@ const referralHandler = async (ctx) => {
     message += `3. You earn ${REFERRER_EARNING_PERCENTAGE}% of their trading fees\n`;
     message += `4. Everyone wins!`;
     
-    // Create keyboard for sharing
-    const shareKeyboard = Markup.inlineKeyboard([
-      [Markup.button.url('Share on Telegram', `https://t.me/share/url?url=${encodeURIComponent(referralLink)}&text=${encodeURIComponent('Join me on this awesome crypto trading bot! You get 11% off on fees and I earn rewards when you trade!')}`)],
-      [Markup.button.callback('🔙 Back to Menu', 'back_to_menu')]
+    // Create keyboard for sharing and managing referral codes
+    const referralKeyboard = Markup.inlineKeyboard([
+      [
+        Markup.button.url('Share on Telegram', `https://t.me/share/url?url=${encodeURIComponent(referralLink)}&text=${encodeURIComponent('Join me on this awesome crypto trading bot! You get 11% off on fees and I earn rewards when you trade!')}`)
+      ],
+      [
+        Markup.button.callback('➕ Create Custom Code', 'create_referral_code')
+      ],
+      [Markup.button.callback('🔙 Back to Menu', 'refresh_data')]
     ]);
     
     // Send referral information
     return ctx.reply(message, {
       parse_mode: 'Markdown',
-      ...shareKeyboard
+      disable_web_page_preview: true,
+      ...referralKeyboard
     });
     
   } catch (error) {
@@ -85,17 +101,118 @@ const referralHandler = async (ctx) => {
   }
 };
 
+// Custom referral code handler
+const createReferralCodeHandler = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    
+    await ctx.reply(
+      '➕ *Create Custom Referral Code*\n\n' +
+      'Please enter a custom referral code (4-15 alphanumeric characters).\n\n' +
+      'This code will be used in addition to your default referral code.',
+      {
+        parse_mode: 'Markdown'
+      }
+    );
+    
+    // Set user state for handling input
+    await userService.updateUserSettings(ctx.from.id, { state: 'CREATING_REFERRAL_CODE' });
+  } catch (error) {
+    logger.error(`Create referral code error: ${error.message}`);
+    return ctx.reply('Sorry, something went wrong. Please try again later.');
+  }
+};
+
+// Handle text input for referral code creation
+const handleReferralCodeInput = async (ctx) => {
+  try {
+    const code = ctx.message.text.trim();
+    
+    // Validate code format
+    if (!code.match(/^[a-zA-Z0-9]{4,15}$/)) {
+      return ctx.reply(
+        '❌ Invalid code format. Code must be 4-15 alphanumeric characters.\n\n' +
+        'Please try again:',
+        {
+          ...Markup.inlineKeyboard([
+            [Markup.button.callback('🔙 Cancel', 'view_referrals')]
+          ])
+        }
+      );
+    }
+    
+    try {
+      // Add custom referral code
+      await userService.addCustomReferralCode(ctx.from.id, code);
+      
+      // Create link with the new code
+      const botUsername = ctx.botInfo.username;
+      const referralLink = `https://t.me/${botUsername}?start=${code}`;
+      
+      // Reset user state
+      await userService.updateUserSettings(ctx.from.id, { state: null });
+      
+      return ctx.reply(
+        '✅ *Custom Referral Code Created!*\n\n' +
+        `Your new referral code: \`${code}\`\n\n` +
+        `Share this link: \`${referralLink}\``,
+        {
+          parse_mode: 'Markdown',
+          ...Markup.inlineKeyboard([
+            [
+              Markup.button.url('Share on Telegram', `https://t.me/share/url?url=${encodeURIComponent(referralLink)}&text=${encodeURIComponent('Join me on this awesome crypto trading bot! You get 11% off on fees and I earn rewards when you trade!')}`)
+            ],
+            [Markup.button.callback('🔙 Back to Referrals', 'view_referrals')]
+          ])
+        }
+      );
+    } catch (error) {
+      logger.error(`Error adding custom referral code: ${error.message}`);
+      return ctx.reply(
+        `❌ Error: ${error.message}\n\n` +
+        'Please try a different code:',
+        {
+          ...Markup.inlineKeyboard([
+            [Markup.button.callback('🔙 Cancel', 'view_referrals')]
+          ])
+        }
+      );
+    }
+  } catch (error) {
+    logger.error(`Handle referral code input error: ${error.message}`);
+    return ctx.reply('Sorry, something went wrong. Please try again later.');
+  }
+};
+
 // Register referral handlers
 const registerReferralHandlers = (bot) => {
   // Handle referral button click
   bot.hears('🔄 Referrals', referralHandler);
+  bot.action('view_referrals', async (ctx) => {
+    await ctx.answerCbQuery();
+    return referralHandler(ctx);
+  });
+  
+  // Create custom referral code
+  bot.action('create_referral_code', createReferralCodeHandler);
+  
+  // Handle text input for referral code creation
+  bot.on('text', async (ctx, next) => {
+    const user = await userService.getUserByTelegramId(ctx.from.id);
+    
+    if (user && user.state === 'CREATING_REFERRAL_CODE') {
+      return handleReferralCodeInput(ctx);
+    }
+    
+    return next();
+  });
   
   // Back to menu action
   bot.action('back_to_menu', async (ctx) => {
     try {
       await ctx.answerCbQuery();
       // Redirect to start menu
-      await ctx.reply('Returning to main menu...');
+      return ctx.callbackQuery.data = 'refresh_data';
     } catch (error) {
       logger.error(`Back to menu error: ${error.message}`);
     }
@@ -104,5 +221,6 @@ const registerReferralHandlers = (bot) => {
 
 module.exports = {
   referralHandler,
-  registerReferralHandlers
+  registerReferralHandlers,
+  handleReferralCodeInput
 }; 

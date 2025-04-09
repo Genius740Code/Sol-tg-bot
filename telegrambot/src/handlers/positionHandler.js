@@ -2,34 +2,53 @@ const { Markup } = require('telegraf');
 const userService = require('../services/userService');
 const { getTokenInfo, getTokenPrice, getSolPrice, isRateLimited } = require('../../utils/wallet');
 const { logger } = require('../database');
+const { updateOrSendMessage } = require('./refreshHandler');
 
 // Get all tokens for a user
 const getAllUserTokens = async (walletAddress) => {
   try {
-    // This function would call Helius API to get all tokens in the wallet
-    // For now, we'll return mock data
-    return [
-      {
-        symbol: 'BONK',
-        name: 'Bonk',
-        address: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263',
-        balance: 150000.0,
-        price: 0.00001,
-        decimals: 5,
-        market_cap: 500000,
-        liquidity: 100000
-      },
-      {
-        symbol: 'WIF',
-        name: 'Dogwifhat',
-        address: 'EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLZYQJuBsgtYD',
-        balance: 250.0,
-        price: 0.5,
-        decimals: 9,
-        market_cap: 250000000,
-        liquidity: 5000000
+    const heliusApiKey = process.env.HELIUS_API_KEY;
+    if (!heliusApiKey) throw new Error('Helius API key not found');
+    
+    const axios = require('axios');
+    
+    // Call Helius API to get tokens in the wallet
+    const response = await axios.get(`https://api.helius.xyz/v0/addresses/${walletAddress}/balances?api-key=${heliusApiKey}`);
+    
+    if (!response.data || !response.data.tokens) {
+      return [];
+    }
+    
+    // Process tokens (filter out small balances)
+    const tokens = response.data.tokens
+      .filter(token => token.amount > 0)
+      .map(token => ({
+        symbol: token.symbol || 'Unknown',
+        name: token.name || 'Unknown Token',
+        address: token.mint,
+        balance: token.amount / Math.pow(10, token.decimals),
+        price: token.priceUsd || 0,
+        decimals: token.decimals,
+        market_cap: 0, // Will be updated if available
+        liquidity: 0    // Will be updated if available
+      }));
+    
+    // Get additional price info for each token
+    for (let i = 0; i < tokens.length; i++) {
+      try {
+        const tokenPrice = await getTokenPrice(tokens[i].address);
+        if (tokenPrice && tokenPrice.tokenInfo) {
+          tokens[i].price = tokenPrice.price || 0;
+          tokens[i].market_cap = tokenPrice.marketCap || 0;
+          tokens[i].liquidity = tokenPrice.liquidity || 0;
+        }
+      } catch (error) {
+        logger.error(`Error getting price for token ${tokens[i].address}: ${error.message}`);
+        // Continue with next token
       }
-    ];
+    }
+    
+    return tokens;
   } catch (error) {
     logger.error(`Error getting user tokens: ${error.message}`);
     return [];
@@ -52,27 +71,26 @@ const positionsHandler = async (ctx) => {
     }
     
     // Get user tokens
-    const tokens = await getAllUserTokens(user.walletAddress);
+    const activeWallet = user.getActiveWallet();
+    const tokens = await getAllUserTokens(activeWallet.address);
     
     if (!tokens || tokens.length === 0) {
-      const noPositionsKeyboard = Markup.inlineKeyboard([
-        [Markup.button.callback('💰 Buy New Token', 'buy_token')],
-        [Markup.button.callback('🔙 Back to Menu', 'refresh_data')]
-      ]);
-      
       return ctx.reply(
         '📊 *Your Positions*\n\n' +
         'You don\'t have any positions yet.\n' +
         'Start trading by buying a token!',
         {
           parse_mode: 'Markdown',
-          ...noPositionsKeyboard
+          ...Markup.inlineKeyboard([
+            [Markup.button.callback('🔙 Back to Menu', 'refresh_data')]
+          ])
         }
       );
     }
     
     // Create position message and buttons
     let positionsMessage = '📊 *Your Positions*\n\n';
+    positionsMessage += `Current Wallet: *${activeWallet.name}*\n\n`;
     
     // Add each token position
     for (const token of tokens) {
@@ -89,8 +107,7 @@ const positionsHandler = async (ctx) => {
       Markup.button.callback(`Manage ${token.symbol}`, `manage_position_${token.address}`)
     ]);
     
-    // Add buttons for adding new positions and going back
-    positionButtons.push([Markup.button.callback('💰 Buy New Token', 'buy_token')]);
+    // Add button for going back
     positionButtons.push([Markup.button.callback('🔙 Back to Menu', 'refresh_data')]);
     
     const positionsKeyboard = Markup.inlineKeyboard(positionButtons);
@@ -206,16 +223,14 @@ const managePositionHandler = async (ctx, tokenAddress) => {
 const buyNewTokenHandler = async (ctx) => {
   try {
     // Prompt user to enter token address
-    const keyboard = Markup.inlineKeyboard([
-      [Markup.button.callback('🔙 Back to Positions', 'view_positions')]
-    ]);
-    
     return ctx.reply(
       `💰 *Buy New Token*\n\n` +
-      `Please enter the token address you want to buy.`,
+      `Please enter the token address you want to buy:`,
       {
         parse_mode: 'Markdown',
-        ...keyboard
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback('🔙 Back to Menu', 'refresh_data')]
+        ])
       }
     );
   } catch (error) {

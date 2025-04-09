@@ -114,12 +114,26 @@ const tokenInfoHandler = async (ctx) => {
 // Buy token handler
 const buyTokenHandler = async (ctx, tokenAddress) => {
   try {
-    // Get token info
+    // If no tokenAddress provided, prompt for token address
+    if (!tokenAddress) {
+      return ctx.reply(
+        `Enter a token CA:`,
+        {
+          parse_mode: 'Markdown'
+        }
+      );
+    }
+    
+    // If tokenAddress is provided, get token info
     const tokenData = await getTokenPrice(tokenAddress);
     const tokenInfo = tokenData.tokenInfo;
     const tokenSymbol = tokenInfo.symbol || 'Unknown';
     const tokenPrice = typeof tokenData.price === 'number' ? 
       `$${tokenData.price.toFixed(4)}` : 'Unknown';
+    
+    // Format market cap
+    const marketCap = typeof tokenData.marketCap === 'number' ? 
+      `$${tokenData.marketCap.toLocaleString()}` : 'Unknown';
     
     // Calculate fee (0.8% normal, 0.712% with referral - 11% discount)
     const normalFee = 0.8;
@@ -127,16 +141,28 @@ const buyTokenHandler = async (ctx, tokenAddress) => {
     
     return ctx.reply(
       `💰 *Buy ${tokenSymbol}*\n\n` +
-      `Current Price: ${tokenPrice}\n\n` +
+      `Current Price: ${tokenPrice}\n` +
+      `Market Cap: ${marketCap}\n\n` +
       `Trading Fee: ${normalFee}% (${referralFee}% with referral)\n\n` +
-      `Please enter the wallet address where you want to send the tokens:`,
+      `Please enter the amount of SOL you want to use:`,
       {
         parse_mode: 'Markdown',
-        reply_markup: {
-          inline_keyboard: [
-            [Markup.button.callback('🔙 Back', `token_info_${tokenAddress}`)]
+        reply_markup: Markup.inlineKeyboard([
+          [
+            Markup.button.callback('0.1 SOL', `confirm_buy_${tokenAddress}_0.1`),
+            Markup.button.callback('0.2 SOL', `confirm_buy_${tokenAddress}_0.2`)
+          ],
+          [
+            Markup.button.callback('0.5 SOL', `confirm_buy_${tokenAddress}_0.5`),
+            Markup.button.callback('1 SOL', `confirm_buy_${tokenAddress}_1`)
+          ],
+          [
+            Markup.button.callback('Custom Amount', `custom_buy_${tokenAddress}`)
+          ],
+          [
+            Markup.button.callback('🔙 Back', 'refresh_data')
           ]
-        }
+        ])
       }
     );
   } catch (error) {

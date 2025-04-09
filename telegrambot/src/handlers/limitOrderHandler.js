@@ -21,7 +21,9 @@ const limitOrdersHandler = async (ctx) => {
         'To create a limit order, use the Buy or Sell options and select the limit order option.',
         {
           parse_mode: 'Markdown',
-          ...Markup.keyboard([['🔙 Main Menu']])
+          ...Markup.inlineKeyboard([
+            [Markup.button.callback('🔙 Back to Menu', 'refresh_data')]
+          ])
         }
       );
     }
@@ -71,7 +73,7 @@ const limitOrdersHandler = async (ctx) => {
     ]);
     
     // Add back button
-    buttons.push([Markup.button.callback('🔙 Back to Menu', 'back_to_menu')]);
+    buttons.push([Markup.button.callback('🔙 Back to Menu', 'refresh_data')]);
     
     // Send limit orders message
     return ctx.reply(message, {

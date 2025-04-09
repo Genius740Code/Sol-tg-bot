@@ -19,12 +19,21 @@ const settingsHandler = async (ctx) => {
       return ctx.reply('Please wait a moment before trying again.');
     }
 
-    await ctx.reply('⚙️ Settings Menu', 
-      Markup.keyboard([
-        ['🔧 Transaction Settings', '👛 Wallet Management'],
-        ['🔔 Notifications', '📊 Trading Preferences'],
-        ['⬅️ Back to Main Menu']
-      ]).resize()
+    await ctx.reply('⚙️ *Settings Menu*',
+      {
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard([
+          [
+            Markup.button.callback('🔧 Transaction Settings', 'tx_settings'),
+            Markup.button.callback('👛 Wallet Management', 'wallet_management')
+          ],
+          [
+            Markup.button.callback('🔔 Notifications', 'notifications_settings'),
+            Markup.button.callback('📊 Trading Preferences', 'trading_preferences')
+          ],
+          [Markup.button.callback('🔙 Back to Menu', 'refresh_data')]
+        ])
+      }
     );
   } catch (error) {
     logger.error(`Settings handler error: ${error.message}`);
@@ -398,14 +407,19 @@ const updateSlippageHandler = async (ctx) => {
 // Handle text input for private key during wallet import
 const textInputHandler = async (bot) => {
   // Register general message handler for private key input during wallet import
-  bot.on('text', async (ctx) => {
+  bot.on('text', async (ctx, next) => {
     try {
+      // Skip commands (messages starting with /)
+      if (ctx.message.text.startsWith('/')) {
+        return next();
+      }
+      
       // Get user and check state
       const user = await userService.getUserByTelegramId(ctx.from.id);
       
       if (!user || user.state !== 'AWAITING_PRIVATE_KEY') {
-        // Just ignore text input if user is not waiting for private key
-        return;
+        // Just pass to next handler if user is not waiting for private key
+        return next();
       }
       
       // User is in the process of importing a wallet
@@ -467,6 +481,7 @@ const textInputHandler = async (bot) => {
       }
     } catch (error) {
       logger.error(`Text input handler error: ${error.message}`);
+      return next();
     }
   });
 };
