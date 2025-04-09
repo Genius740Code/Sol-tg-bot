@@ -11,11 +11,13 @@ const { limitOrdersHandler, registerLimitOrderHandlers } = require('./handlers/l
 const { getSolPrice, getTokenPrice } = require('../utils/wallet');
 const fs = require('fs');
 const path = require('path');
+const { startBot } = require('./app');
 
 // Check if logs directory exists, if not create it
 const logsDir = path.join(__dirname, '..', 'logs');
 if (!fs.existsSync(logsDir)) {
-  fs.mkdirSync(logsDir);
+  fs.mkdirSync(logsDir, { recursive: true });
+  logger.info('Created logs directory');
 }
 
 // Create bot instance
@@ -169,22 +171,11 @@ schedule.scheduleJob('* * * * *', async () => {
   }
 });
 
-// Start bot
-logger.info('Starting bot...');
-bot.launch()
-  .then(() => {
-    logger.info('Bot started successfully');
-  })
-  .catch((err) => {
-    logger.error(`Bot failed to start: ${err.message}`);
-  });
-
-// Enable graceful stop
-process.once('SIGINT', () => {
-  logger.info('SIGINT received. Stopping bot...');
-  bot.stop('SIGINT');
-});
-process.once('SIGTERM', () => {
-  logger.info('SIGTERM received. Stopping bot...');
-  bot.stop('SIGTERM');
-});
+// Start the bot
+try {
+  startBot();
+  logger.info('Bot started successfully');
+} catch (error) {
+  logger.error(`Failed to start the bot: ${error.message}`);
+  process.exit(1);
+}

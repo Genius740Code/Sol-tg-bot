@@ -92,14 +92,28 @@ const startHandler = async (ctx) => {
       // Ignore if deletion fails
     }
     
-    // Main menu keyboard with fees info
-    const mainMenuKeyboard = Markup.keyboard([
-      ['💰 Buy', '💸 Sell'],
-      ['📊 Positions', '📝 Limit Orders'],
-      ['👥 Copy Trading', '🔄 Referrals'],
-      ['💳 Wallets', '⚙️ Settings'],
-      ['🔄 Refresh']
-    ]).resize();
+    // Replace keyboard with inline buttons
+    const mainMenuInlineKeyboard = Markup.inlineKeyboard([
+      [
+        Markup.button.callback('💰 Buy', 'buy_token'),
+        Markup.button.callback('💸 Sell', 'sell_token')
+      ],
+      [
+        Markup.button.callback('📊 Positions', 'view_positions'),
+        Markup.button.callback('📝 Limit Orders', 'view_limit_orders')
+      ],
+      [
+        Markup.button.callback('👥 Copy Trading', 'copy_trading'),
+        Markup.button.callback('🔄 Referrals', 'view_referrals')
+      ],
+      [
+        Markup.button.callback('💳 Wallets', 'wallet_management'),
+        Markup.button.callback('⚙️ Settings', 'settings')
+      ],
+      [
+        Markup.button.callback('🔄 Refresh', 'refresh_data')
+      ]
+    ]);
     
     // Calculate referral savings
     const hasReferrer = user.referredBy !== null;
@@ -114,11 +128,10 @@ const startHandler = async (ctx) => {
       `💎 SOL Balance: ${solBalance.toFixed(4)} SOL\n` +
       `💵 Value: $${balanceUsd.toFixed(2)}\n` +
       `📈 SOL Price: $${solPrice.toFixed(2)}\n\n` +
-      `${feeText}\n\n` +
-      `Choose an option from the menu:`,
+      `${feeText}`,
       {
         parse_mode: 'Markdown',
-        ...mainMenuKeyboard
+        ...mainMenuInlineKeyboard
       }
     );
   } catch (error) {
@@ -127,15 +140,46 @@ const startHandler = async (ctx) => {
   }
 };
 
-// Refresh handler - same as start but with different message
+// Refresh handler (for 🔄 Refresh button)
 const refreshHandler = async (ctx) => {
   try {
-    // We'll use the same function but with a loading message
-    await ctx.reply('⏳ Refreshing your account data...');
-    return await startHandler(ctx);
+    // Try to get callback query first, then message
+    let chatId, messageId;
+
+    // Handle both callback query and direct message
+    if (ctx.callbackQuery) {
+      chatId = ctx.callbackQuery.message.chat.id;
+      messageId = ctx.callbackQuery.message.message_id;
+      await ctx.answerCbQuery('Refreshing data...');
+    } else {
+      chatId = ctx.message.chat.id;
+    }
+
+    // Start by showing loading message
+    let loadingMsg;
+    if (messageId) {
+      await ctx.editMessageText('🔄 Refreshing your data...', {
+        chat_id: chatId,
+        message_id: messageId
+      });
+    } else {
+      loadingMsg = await ctx.reply('🔄 Refreshing your data...');
+    }
+
+    // Then call the startHandler to refresh everything
+    await startHandler(ctx);
+
+    // Delete loading message if needed
+    if (loadingMsg && !messageId) {
+      try {
+        await ctx.telegram.deleteMessage(chatId, loadingMsg.message_id);
+      } catch (error) {
+        // Ignore if deletion fails
+      }
+    }
   } catch (error) {
     logger.error(`Refresh handler error: ${error.message}`);
-    return ctx.reply('Sorry, something went wrong while refreshing. Please try again later.');
+    return ctx.reply('Sorry, something went wrong. Please try again later or contact support.');
   }
 };
 
