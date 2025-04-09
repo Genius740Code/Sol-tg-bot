@@ -254,7 +254,7 @@ async function startBot() {
           
           return ctx.reply(
             '💳 *Wallet Management*\n\n' +
-            `Current Wallet: \`${user.walletAddress.slice(0, 8)}...${user.walletAddress.slice(-8)}\`\n\n` +
+            `Current Wallet: \`${user.walletAddress}\`\n\n` +
             'Choose an option:',
             {
               parse_mode: 'Markdown',

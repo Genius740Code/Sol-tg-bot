@@ -32,6 +32,40 @@ const generateWallet = async () => {
   }
 };
 
+// Import wallet from private key or mnemonic
+const importWalletFromPrivateKey = async (privateKeyOrMnemonic) => {
+  try {
+    let keypair;
+    let mnemonic = null;
+    
+    // Check if input is a mnemonic phrase (usually 12 or 24 words)
+    if (privateKeyOrMnemonic.includes(' ') && bip39.validateMnemonic(privateKeyOrMnemonic)) {
+      // It's a mnemonic - derive the keypair
+      mnemonic = privateKeyOrMnemonic;
+      const seed = await bip39.mnemonicToSeed(mnemonic);
+      const derivedSeed = derivePath("m/44'/501'/0'/0'", seed.slice(0, 32)).key;
+      keypair = Keypair.fromSeed(derivedSeed);
+    } else {
+      // Assume it's a private key
+      // Check if it's in hex format (64 bytes = 128 hex chars)
+      const secretKey = privateKeyOrMnemonic.length === 128 
+        ? Buffer.from(privateKeyOrMnemonic, 'hex') 
+        : Buffer.from(privateKeyOrMnemonic, 'base58');
+        
+      keypair = Keypair.fromSecretKey(secretKey);
+    }
+    
+    return {
+      publicKey: keypair.publicKey.toString(),
+      privateKey: Buffer.from(keypair.secretKey).toString('hex'),
+      mnemonic
+    };
+  } catch (error) {
+    logger.error('Error importing wallet:', error);
+    throw new Error('Failed to import wallet: Invalid private key or mnemonic');
+  }
+};
+
 // Get SOL balance for an address
 const getSolBalance = async (publicKey) => {
   try {
@@ -150,6 +184,7 @@ const isRateLimited = (userId) => {
 
 module.exports = {
   generateWallet,
+  importWalletFromPrivateKey,
   getSolBalance,
   getSolPrice,
   getTokenInfo,

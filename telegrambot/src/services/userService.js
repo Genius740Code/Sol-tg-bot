@@ -2,6 +2,7 @@ const { User } = require('../../models/User');
 const { generateWallet } = require('../../utils/wallet');
 const { encrypt } = require('../../utils/encryption');
 const { logger } = require('../database');
+const walletUtils = require('../../utils/wallet');
 
 /**
  * Get user by Telegram ID
@@ -190,25 +191,41 @@ const getReferralInfo = async (telegramId) => {
 
 /**
  * Import wallet from private key or mnemonic
- * @param {number} telegramId - User's Telegram ID
+ * @param {number} userId - User's Telegram ID
  * @param {string} privateKeyOrMnemonic - Private key or mnemonic phrase
  * @returns {Promise<Object>} Updated user
  */
-const importWallet = async (telegramId, privateKeyOrMnemonic) => {
+const importWallet = async (userId, privateKeyOrMnemonic) => {
   try {
-    // Implementation will depend on your wallet utility functions
-    // This is a placeholder that would need to be completed
+    // Validate the user first
+    const user = await User.findOne({ telegramId: userId });
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    // Import the wallet using utility function
+    const wallet = await walletUtils.importWalletFromPrivateKey(privateKeyOrMnemonic);
     
-    // Here you would:
-    // 1. Determine if input is private key or mnemonic
-    // 2. Generate wallet from it
-    // 3. Update user record
+    // Encrypt the private key before storing
+    const encryptedPrivateKey = encrypt(wallet.privateKey);
+    const encryptedMnemonic = wallet.mnemonic ? encrypt(wallet.mnemonic) : null;
     
-    logger.error('Wallet import not fully implemented');
-    throw new Error('Wallet import functionality not implemented');
+    // Update user's wallet information
+    await User.findOneAndUpdate(
+      { telegramId: userId },
+      { 
+        $set: { 
+          walletAddress: wallet.publicKey,
+          encryptedPrivateKey: encryptedPrivateKey,
+          mnemonic: encryptedMnemonic 
+        } 
+      }
+    );
+
+    return { publicKey: wallet.publicKey };
   } catch (error) {
-    logger.error(`Error importing wallet: ${error.message}`);
-    throw new Error('Failed to import wallet');
+    logger.error(`Error importing wallet for user ${userId}:`, error);
+    throw new Error('Failed to import wallet: ' + error.message);
   }
 };
 

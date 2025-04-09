@@ -37,8 +37,9 @@ const startHandler = async (ctx) => {
           await ctx.reply(
             `👋 Welcome to the Crypto Trading Bot, ${ctx.from.first_name}!\n\n` +
             `We've created a Solana wallet for you:\n` +
-            `${user.walletAddress}\n\n` +
-            `This wallet is secured with strong encryption. Keep using the bot to trade SOL and other tokens!`
+            `\`${user.walletAddress}\`\n\n` +
+            `This wallet is secured with strong encryption. Keep using the bot to trade SOL and other tokens!`,
+            { parse_mode: 'Markdown' }
           );
         }
         
@@ -95,11 +96,11 @@ const startHandler = async (ctx) => {
       ],
       [
         Markup.button.callback('📊 Positions', 'view_positions'),
-        Markup.button.callback('📝 Limit Orders', 'view_limit_orders')
+        Markup.button.callback('🔄 Referrals', 'view_referrals')
       ],
       [
-        Markup.button.callback('👥 Copy Trading', 'copy_trading'),
-        Markup.button.callback('🔄 Referrals', 'view_referrals')
+        Markup.button.callback('📝 Limit Orders', 'view_limit_orders'),
+        Markup.button.callback('👥 Copy Trading', 'copy_trading')
       ],
       [
         Markup.button.callback('💳 Wallets', 'wallet_management'),
@@ -119,7 +120,7 @@ const startHandler = async (ctx) => {
     // Send main menu
     return ctx.reply(
       `🤖 *Crypto Trading Bot* 🤖\n\n` +
-      `👛 Wallet: \`${user.walletAddress.slice(0, 8)}...${user.walletAddress.slice(-8)}\`\n\n` +
+      `👛 Wallet: \`${user.walletAddress}\`\n\n` +
       `💎 SOL Balance: ${solBalance.toFixed(4)} SOL\n` +
       `💵 Value: $${balanceUsd.toFixed(2)}\n` +
       `📈 SOL Price: $${solPrice.toFixed(2)}\n\n` +
@@ -145,32 +146,89 @@ const refreshHandler = async (ctx) => {
     if (ctx.callbackQuery) {
       chatId = ctx.callbackQuery.message.chat.id;
       messageId = ctx.callbackQuery.message.message_id;
-      await ctx.answerCbQuery('Refreshing data...');
+      await ctx.answerCbQuery('Refreshing...');
     } else {
       chatId = ctx.message.chat.id;
     }
 
-    // Start by showing loading message
-    let loadingMsg;
-    if (messageId) {
-      await ctx.editMessageText('🔄 Refreshing your data...', {
-        chat_id: chatId,
-        message_id: messageId
-      });
-    } else {
-      loadingMsg = await ctx.reply('🔄 Refreshing your data...');
+    // Get user and data
+    const user = await userService.getUserByTelegramId(ctx.from.id);
+    if (!user) {
+      return startHandler(ctx);
     }
+    
+    // Get SOL price and balance in parallel
+    const [solPrice, solBalance] = await Promise.all([
+      getSolPrice().catch(error => {
+        logger.error(`Error fetching SOL price: ${error.message}`);
+        return 180.00; // Fallback price
+      }),
+      getSolBalance(user.walletAddress).catch(error => {
+        logger.error(`Error fetching SOL balance: ${error.message}`);
+        return 0; // Fallback balance
+      })
+    ]);
 
-    // Then call the startHandler to refresh everything
-    await startHandler(ctx);
+    const balanceUsd = solBalance * solPrice;
+    
+    // Calculate referral savings
+    const hasReferrer = user.referredBy !== null;
+    const feeText = hasReferrer ? 
+      `🏷️ You have a referral discount: ${REFERRAL_FEE_PERCENTAGE.toFixed(3)}% trading fee (${REFERRAL_DISCOUNT_PERCENTAGE}% off)` : 
+      `💡 Refer friends to get ${REFERRAL_DISCOUNT_PERCENTAGE}% off trading fees (${NORMAL_FEE_PERCENTAGE}% → ${REFERRAL_FEE_PERCENTAGE.toFixed(3)}%)`;
+    
+    // Build the main menu inline keyboard
+    const mainMenuInlineKeyboard = Markup.inlineKeyboard([
+      [
+        Markup.button.callback('💰 Buy', 'buy_token'),
+        Markup.button.callback('💸 Sell', 'sell_token')
+      ],
+      [
+        Markup.button.callback('📊 Positions', 'view_positions'),
+        Markup.button.callback('🔄 Referrals', 'view_referrals')
+      ],
+      [
+        Markup.button.callback('📝 Limit Orders', 'view_limit_orders'),
+        Markup.button.callback('👥 Copy Trading', 'copy_trading')
+      ],
+      [
+        Markup.button.callback('💳 Wallets', 'wallet_management'),
+        Markup.button.callback('⚙️ Settings', 'settings')
+      ],
+      [
+        Markup.button.callback('🔄 Refresh', 'refresh_data')
+      ]
+    ]);
 
-    // Delete loading message if needed
-    if (loadingMsg && !messageId) {
-      try {
-        await ctx.telegram.deleteMessage(chatId, loadingMsg.message_id);
-      } catch (error) {
-        // Ignore if deletion fails
-      }
+    // Update the message with fresh data
+    if (messageId) {
+      await ctx.editMessageText(
+        `🤖 *Crypto Trading Bot* 🤖\n\n` +
+        `👛 Wallet: \`${user.walletAddress}\`\n\n` +
+        `💎 SOL Balance: ${solBalance.toFixed(4)} SOL\n` +
+        `💵 Value: $${balanceUsd.toFixed(2)}\n` +
+        `📈 SOL Price: $${solPrice.toFixed(2)}\n\n` +
+        `${feeText}`,
+        {
+          chat_id: chatId,
+          message_id: messageId,
+          parse_mode: 'Markdown',
+          ...mainMenuInlineKeyboard
+        }
+      );
+    } else {
+      return ctx.reply(
+        `🤖 *Crypto Trading Bot* 🤖\n\n` +
+        `👛 Wallet: \`${user.walletAddress}\`\n\n` +
+        `💎 SOL Balance: ${solBalance.toFixed(4)} SOL\n` +
+        `💵 Value: $${balanceUsd.toFixed(2)}\n` +
+        `📈 SOL Price: $${solPrice.toFixed(2)}\n\n` +
+        `${feeText}`,
+        {
+          parse_mode: 'Markdown',
+          ...mainMenuInlineKeyboard
+        }
+      );
     }
   } catch (error) {
     logger.error(`Refresh handler error: ${error.message}`);

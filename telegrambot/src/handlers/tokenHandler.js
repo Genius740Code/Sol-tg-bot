@@ -11,9 +11,6 @@ const tokenInfoHandler = async (ctx) => {
       return ctx.reply('Please wait a moment before making another request.');
     }
     
-    // Initial loading message
-    await ctx.reply('⏳ Analyzing token, please wait...');
-    
     // Get token address from message
     const message = ctx.message.text;
     const tokenAddress = message.trim();
@@ -117,9 +114,6 @@ const tokenInfoHandler = async (ctx) => {
 // Buy token handler
 const buyTokenHandler = async (ctx, tokenAddress) => {
   try {
-    // This would be a scene or wizard to handle the buying process
-    // For now we'll show a placeholder
-    
     // Get token info
     const tokenData = await getTokenPrice(tokenAddress);
     const tokenInfo = tokenData.tokenInfo;
@@ -131,27 +125,18 @@ const buyTokenHandler = async (ctx, tokenAddress) => {
     const normalFee = 0.8;
     const referralFee = normalFee * 0.89; // 11% less
     
-    // Send message with buy options
-    const buyKeyboard = Markup.inlineKeyboard([
-      [
-        Markup.button.callback('0.1 SOL', `confirm_buy_${tokenAddress}_0.1`),
-        Markup.button.callback('0.5 SOL', `confirm_buy_${tokenAddress}_0.5`)
-      ],
-      [
-        Markup.button.callback('1 SOL', `confirm_buy_${tokenAddress}_1`),
-        Markup.button.callback('Custom Amount', `custom_buy_${tokenAddress}`)
-      ],
-      [Markup.button.callback('🔙 Back', `token_info_${tokenAddress}`)]
-    ]);
-    
     return ctx.reply(
       `💰 *Buy ${tokenSymbol}*\n\n` +
       `Current Price: ${tokenPrice}\n\n` +
       `Trading Fee: ${normalFee}% (${referralFee}% with referral)\n\n` +
-      `How much SOL would you like to spend?`,
+      `Please enter the wallet address where you want to send the tokens:`,
       {
         parse_mode: 'Markdown',
-        ...buyKeyboard
+        reply_markup: {
+          inline_keyboard: [
+            [Markup.button.callback('🔙 Back', `token_info_${tokenAddress}`)]
+          ]
+        }
       }
     );
   } catch (error) {

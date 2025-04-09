@@ -395,6 +395,82 @@ const updateSlippageHandler = async (ctx) => {
   }
 };
 
+// Handle text input for private key during wallet import
+const textInputHandler = async (bot) => {
+  // Register general message handler for private key input during wallet import
+  bot.on('text', async (ctx) => {
+    try {
+      // Get user and check state
+      const user = await userService.getUserByTelegramId(ctx.from.id);
+      
+      if (!user || user.state !== 'AWAITING_PRIVATE_KEY') {
+        // Just ignore text input if user is not waiting for private key
+        return;
+      }
+      
+      // User is in the process of importing a wallet
+      const privateKeyOrMnemonic = ctx.message.text.trim();
+      
+      if (privateKeyOrMnemonic.length < 20) {
+        // Private keys and mnemonics are longer than this
+        return ctx.reply(
+          '❌ Invalid input.\n\n' +
+          'Please enter a valid private key or mnemonic phrase.',
+          Markup.inlineKeyboard([
+            [Markup.button.callback('❌ Cancel', 'wallet_management')]
+          ])
+        );
+      }
+      
+      try {
+        // Delete the message with private key for security
+        await ctx.deleteMessage(ctx.message.message_id).catch(() => {
+          // Ignore deletion errors, bot might not have permission
+        });
+        
+        // Show loading message
+        const loadingMsg = await ctx.reply('⏳ Importing wallet...');
+        
+        // Try to import wallet
+        const result = await userService.importWallet(ctx.from.id, privateKeyOrMnemonic);
+        
+        // Remove the loading message
+        await ctx.telegram.deleteMessage(ctx.chat.id, loadingMsg.message_id).catch(() => {});
+        
+        // Reset user state
+        await userService.updateUserSettings(ctx.from.id, { state: null });
+        
+        // Show success message with truncated wallet address
+        await ctx.reply(
+          '✅ Wallet imported successfully!\n\n' +
+          `Your new wallet address: \`${result.publicKey}\`\n\n` +
+          'Your wallet has been securely stored. You can now use it for transactions.',
+          {
+            parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [
+                [Markup.button.callback('⬅️ Back to Wallet Management', 'wallet_management')]
+              ]
+            }
+          }
+        );
+      } catch (error) {
+        logger.error(`Wallet import error: ${error.message}`);
+        await ctx.reply(
+          `❌ Failed to import wallet: ${error.message}\n\n` +
+          'Please check your private key or mnemonic and try again.',
+          Markup.inlineKeyboard([
+            [Markup.button.callback('Try Again', 'import_wallet')],
+            [Markup.button.callback('Cancel', 'wallet_management')]
+          ])
+        );
+      }
+    } catch (error) {
+      logger.error(`Text input handler error: ${error.message}`);
+    }
+  });
+};
+
 // Register settings handlers
 const registerSettingsHandlers = (bot) => {
   // Main settings menu
@@ -447,6 +523,9 @@ const registerSettingsHandlers = (bot) => {
       return ctx.reply('Returning to main menu...');
     }
   });
+  
+  // Register text input handler for private keys
+  textInputHandler(bot);
 };
 
 module.exports = {
