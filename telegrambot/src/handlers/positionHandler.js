@@ -3,6 +3,39 @@ const userService = require('../services/userService');
 const { getTokenInfo, getTokenPrice, getSolPrice, isRateLimited } = require('../../utils/wallet');
 const { logger } = require('../database');
 
+// Get all tokens for a user
+const getAllUserTokens = async (walletAddress) => {
+  try {
+    // This function would call Helius API to get all tokens in the wallet
+    // For now, we'll return mock data
+    return [
+      {
+        symbol: 'BONK',
+        name: 'Bonk',
+        address: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263',
+        balance: 150000.0,
+        price: 0.00001,
+        decimals: 5,
+        market_cap: 500000,
+        liquidity: 100000
+      },
+      {
+        symbol: 'WIF',
+        name: 'Dogwifhat',
+        address: 'EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLZYQJuBsgtYD',
+        balance: 250.0,
+        price: 0.5,
+        decimals: 9,
+        market_cap: 250000000,
+        liquidity: 5000000
+      }
+    ];
+  } catch (error) {
+    logger.error(`Error getting user tokens: ${error.message}`);
+    return [];
+  }
+};
+
 // Show user positions
 const positionsHandler = async (ctx) => {
   try {
@@ -18,106 +51,57 @@ const positionsHandler = async (ctx) => {
       return ctx.reply('You need to start the bot first with /start');
     }
     
-    // Get current SOL price
-    let solPrice = 0;
-    try {
-      solPrice = await getSolPrice();
-    } catch (error) {
-      logger.error(`Error getting SOL price: ${error.message}`);
-    }
+    // Get user tokens
+    const tokens = await getAllUserTokens(user.walletAddress);
     
-    // If no positions
-    if (!user.positions || user.positions.length === 0) {
-      const buyKeyboard = Markup.inlineKeyboard([
-        [Markup.button.callback('Buy SOL Token', 'buy_new_token')],
-        [Markup.button.callback('🔙 Back to Menu', 'back_to_menu')]
+    if (!tokens || tokens.length === 0) {
+      const noPositionsKeyboard = Markup.inlineKeyboard([
+        [Markup.button.callback('💰 Buy New Token', 'buy_token')],
+        [Markup.button.callback('🔙 Back to Menu', 'refresh_data')]
       ]);
       
       return ctx.reply(
         '📊 *Your Positions*\n\n' +
-        'You have no open positions right now.\n\n' +
-        'To create a position, use the Buy option from the main menu.',
+        'You don\'t have any positions yet.\n' +
+        'Start trading by buying a token!',
         {
           parse_mode: 'Markdown',
-          ...buyKeyboard
+          ...noPositionsKeyboard
         }
       );
     }
     
-    // Process positions
-    let message = '📊 *Your Positions*\n\n';
-    let buttons = [];
-    let totalValue = 0;
+    // Create position message and buttons
+    let positionsMessage = '📊 *Your Positions*\n\n';
     
-    // Process each position
-    for (const position of user.positions) {
-      try {
-        // Get token info and price
-        let tokenData;
-        try {
-          tokenData = await getTokenPrice(position.tokenAddress);
-        } catch (error) {
-          logger.error(`Error getting token price: ${error.message}`);
-          tokenData = {
-            price: 0,
-            tokenInfo: await getTokenInfo(position.tokenAddress)
-          };
-        }
-        
-        const tokenInfo = tokenData.tokenInfo || {};
-        const tokenName = tokenInfo.name || 'Unknown Token';
-        const tokenSymbol = tokenInfo.symbol || '???';
-        
-        // Calculate current value and P/L
-        let currentPrice = 0;
-        
-        // Use real token price if available, else placeholder
-        if (typeof tokenData.price === 'number') {
-          currentPrice = tokenData.price;
-        } else {
-          // Placeholder - assumes some gain for demo purposes
-          currentPrice = position.entryPrice * 1.1;
-        }
-        
-        const entryValue = position.amount * position.entryPrice;
-        const currentValue = position.amount * currentPrice;
-        const pnl = currentValue - entryValue;
-        const pnlPercentage = (pnl / entryValue) * 100;
-        
-        // Add to total value
-        totalValue += currentValue;
-        
-        // Create position entry in message
-        message += `*${tokenName} (${tokenSymbol})*\n`;
-        message += `Amount: ${position.amount.toFixed(position.amount < 0.01 ? 6 : 4)}\n`;
-        message += `Entry: $${position.entryPrice.toFixed(4)}\n`;
-        message += `Current: $${currentPrice.toFixed(4)}\n`;
-        message += `P/L: ${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)} USD (${pnlPercentage.toFixed(2)}%)\n\n`;
-        
-        // Add button for this position
-        buttons.push([Markup.button.callback(`Manage ${tokenSymbol}`, `manage_position_${position.tokenAddress}`)]);
-      } catch (error) {
-        logger.error(`Error processing position: ${error.message}`);
-      }
+    // Add each token position
+    for (const token of tokens) {
+      const valueUsd = token.balance * token.price;
+      
+      positionsMessage += `*${token.symbol}* - ${token.name}\n`;
+      positionsMessage += `Balance: ${token.balance.toLocaleString()} ($${valueUsd.toFixed(2)})\n`;
+      positionsMessage += `Price: $${token.price.toFixed(8)}\n`;
+      positionsMessage += `Market Cap: $${token.market_cap.toLocaleString()}\n\n`;
     }
     
-    // Add total value to message
-    message = `💰 *Total Portfolio Value: $${totalValue.toFixed(2)}*\n\n` + message;
+    // Create inline buttons for each token position
+    const positionButtons = tokens.map(token => [
+      Markup.button.callback(`Manage ${token.symbol}`, `manage_position_${token.address}`)
+    ]);
     
-    // Add buy new token button
-    buttons.push([Markup.button.callback('Buy New Token', 'buy_new_token')]);
+    // Add buttons for adding new positions and going back
+    positionButtons.push([Markup.button.callback('💰 Buy New Token', 'buy_token')]);
+    positionButtons.push([Markup.button.callback('🔙 Back to Menu', 'refresh_data')]);
     
-    // Add back button
-    buttons.push([Markup.button.callback('🔙 Back to Menu', 'back_to_menu')]);
+    const positionsKeyboard = Markup.inlineKeyboard(positionButtons);
     
-    // Send positions message
-    return ctx.reply(message, {
+    return ctx.reply(positionsMessage, {
       parse_mode: 'Markdown',
-      ...Markup.inlineKeyboard(buttons)
+      ...positionsKeyboard
     });
   } catch (error) {
     logger.error(`Positions handler error: ${error.message}`);
-    return ctx.reply('Sorry, something went wrong. Please try again later.');
+    return ctx.reply('Sorry, there was an error loading your positions. Please try again later.');
   }
 };
 
@@ -601,5 +585,6 @@ const registerPositionHandlers = (bot) => {
 module.exports = {
   positionsHandler,
   registerPositionHandlers,
-  buyNewTokenHandler
+  buyNewTokenHandler,
+  getAllUserTokens
 }; 

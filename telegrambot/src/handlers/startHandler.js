@@ -18,69 +18,64 @@ const startHandler = async (ctx) => {
       return ctx.reply('Please wait a moment before making another request.');
     }
     
-    // Initial loading message
-    const loadingMsg = await ctx.reply('Loading your account information...');
-    
-    // Create user if doesn't exist
-    let user;
-    try {
-      user = await userService.getUserByTelegramId(ctx.from.id);
-      
-      if (!user) {
-        // Extract referral code if exists
-        let referralCode = null;
-        const startPayload = ctx.startPayload;
-        if (startPayload && startPayload.length > 0) {
-          referralCode = startPayload;
+    // Create or get user (async operation)
+    const userPromise = (async () => {
+      try {
+        let user = await userService.getUserByTelegramId(ctx.from.id);
+        
+        if (!user) {
+          // Extract referral code if exists
+          let referralCode = null;
+          const startPayload = ctx.startPayload;
+          if (startPayload && startPayload.length > 0) {
+            referralCode = startPayload;
+          }
+          
+          user = await userService.createUser(ctx.from, referralCode);
+          
+          // Welcome new user
+          await ctx.reply(
+            `👋 Welcome to the Crypto Trading Bot, ${ctx.from.first_name}!\n\n` +
+            `We've created a Solana wallet for you:\n` +
+            `${user.walletAddress}\n\n` +
+            `This wallet is secured with strong encryption. Keep using the bot to trade SOL and other tokens!`
+          );
         }
         
-        user = await userService.createUser(ctx.from, referralCode);
+        // Update user activity
+        await userService.updateUserActivity(ctx.from.id);
         
-        // Welcome new user
-        await ctx.reply(
-          `👋 Welcome to the Crypto Trading Bot, ${ctx.from.first_name}!\n\n` +
-          `We've created a Solana wallet for you:\n` +
-          `${user.walletAddress}\n\n` +
-          `This wallet is secured with strong encryption. Keep using the bot to trade SOL and other tokens!`
-        );
+        return user;
+      } catch (error) {
+        logger.error(`Error creating/fetching user: ${error.message}`);
+        throw error; // Rethrow to be caught in the main try/catch
       }
-    } catch (error) {
-      logger.error(`Error creating/fetching user: ${error.message}`);
-      return ctx.reply(
-        'Sorry, we are having trouble connecting to our database. Please try again in a few moments.' +
-        '\n\nIf the problem persists, contact support.'
-      );
-    }
+    })();
     
-    // Update user activity
-    await userService.updateUserActivity(ctx.from.id);
+    // Get SOL price (async operation)
+    const solPricePromise = (async () => {
+      try {
+        return await getSolPrice();
+      } catch (error) {
+        logger.error(`Error fetching SOL price: ${error.message}`);
+        return 180.00; // Fallback SOL price
+      }
+    })();
     
-    // Get SOL balance and price
+    // Initial loading message - show immediately while other operations are running
+    const loadingMsg = await ctx.reply('Loading your account information...');
+    
+    // Wait for all async operations to complete
+    const [user, solPrice] = await Promise.all([userPromise, solPricePromise]);
+    
+    // Get SOL balance
     let solBalance = 0;
-    let solPrice = 0;
-    
     try {
-      // Get SOL balance
+      // This needs to happen after user is loaded
       solBalance = await getSolBalance(user.walletAddress);
     } catch (error) {
       logger.error(`Error fetching SOL balance: ${error.message}`);
       // Continue with zero balance
-    }
-    
-    try {
-      // Get SOL price (retry once on failure)
-      try {
-        solPrice = await getSolPrice();
-      } catch (initialError) {
-        logger.warn(`First attempt to get SOL price failed: ${initialError.message}, retrying...`);
-        // Wait a moment before retry
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        solPrice = await getSolPrice();
-      }
-    } catch (error) {
-      logger.error(`Error fetching SOL price (after retry): ${error.message}`);
-      // Use a hardcoded price as fallback
-      solPrice = 180.00; // Fallback SOL price
     }
     
     const balanceUsd = solBalance * solPrice;

@@ -11,6 +11,9 @@ const tokenInfoHandler = async (ctx) => {
       return ctx.reply('Please wait a moment before making another request.');
     }
     
+    // Initial loading message
+    await ctx.reply('⏳ Analyzing token, please wait...');
+    
     // Get token address from message
     const message = ctx.message.text;
     const tokenAddress = message.trim();
@@ -19,8 +22,6 @@ const tokenInfoHandler = async (ctx) => {
     if (!tokenAddress.match(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/)) {
       return ctx.reply('Please enter a valid Solana token address.');
     }
-    
-    await ctx.reply('⏳ Analyzing token, please wait...');
     
     // Get token price and info from Helius
     const tokenData = await getTokenPrice(tokenAddress);
@@ -45,11 +46,15 @@ const tokenInfoHandler = async (ctx) => {
     // Format price data
     const price = typeof tokenData.price === 'number' ? 
       `$${tokenData.price.toFixed(tokenData.price < 0.01 ? 8 : 4)}` : 
-      tokenData.price;
+      'Unknown';
     
     const marketCap = typeof tokenData.marketCap === 'number' ? 
       `$${tokenData.marketCap.toLocaleString()}` : 
-      tokenData.marketCap;
+      'Unknown';
+      
+    const liquidity = typeof tokenData.liquidity === 'number' ? 
+      `$${tokenData.liquidity.toLocaleString()}` : 
+      'Unknown';
     
     // Build response message
     let responseMessage = `🔍 *Token Analysis*\n\n`;
@@ -59,7 +64,7 @@ const tokenInfoHandler = async (ctx) => {
     responseMessage += `🔢 *Decimals:* ${tokenDecimals}\n\n`;
     responseMessage += `💲 *Price:* ${price}\n`;
     responseMessage += `💰 *Market Cap:* ${marketCap}\n`;
-    responseMessage += `💧 *Liquidity:* ${tokenData.liquidity}\n\n`;
+    responseMessage += `💧 *Liquidity:* ${liquidity}\n\n`;
     
     // Add supply info if available
     if (tokenInfo.supply) {
@@ -67,11 +72,19 @@ const tokenInfoHandler = async (ctx) => {
       responseMessage += `📊 *Total Supply:* ${totalSupply.toLocaleString()}\n\n`;
     }
     
+    // Check if token is verified/renounced
+    const isRenounced = tokenInfo.isRenounced || false;
+    responseMessage += `${isRenounced ? '✅ Renounced' : '⚠️ Not Renounced'}\n\n`;
+    
     // Add links to explorers
     responseMessage += `🔗 *Links:*\n`;
+    responseMessage += `• [Chart](https://dexscreener.com/solana/${tokenAddress})\n`;
     responseMessage += `• [Solscan](https://solscan.io/token/${tokenAddress})\n`;
-    responseMessage += `• [SolanaFM](https://solana.fm/address/${tokenAddress})\n`;
     responseMessage += `• [Jupiter](https://jup.ag/swap/SOL-${tokenAddress})\n`;
+    
+    // Create referral link
+    const refLink = `https://t.me/sol_trojanbot?start=r-${ctx.from.username}-${tokenAddress}`;
+    responseMessage += `• [Share with Referral](${refLink})\n`;
     
     // Add action buttons
     const actionKeyboard = Markup.inlineKeyboard([
@@ -81,14 +94,17 @@ const tokenInfoHandler = async (ctx) => {
       ],
       [
         Markup.button.callback('📈 Set Price Alert', `alert_${tokenAddress}`),
-        Markup.button.callback('🔙 Back', 'back_to_menu')
+        Markup.button.callback('🔍 Track', `track_${tokenAddress}`)
+      ],
+      [
+        Markup.button.callback('🔙 Back', 'refresh_data')
       ]
     ]);
     
     // Send response
     return ctx.reply(responseMessage, {
       parse_mode: 'Markdown',
-      disable_web_page_preview: !imageUrl,
+      disable_web_page_preview: true,
       ...actionKeyboard
     });
     
@@ -147,44 +163,99 @@ const buyTokenHandler = async (ctx, tokenAddress) => {
 // Sell token handler
 const sellTokenHandler = async (ctx, tokenAddress) => {
   try {
-    // This would be a scene or wizard to handle the selling process
-    // For now we'll show a placeholder
-    
     // Get token info
     const tokenData = await getTokenPrice(tokenAddress);
-    const tokenInfo = tokenData.tokenInfo;
+    const tokenInfo = tokenData.tokenInfo || {};
     const tokenSymbol = tokenInfo.symbol || 'Unknown';
-    const tokenPrice = typeof tokenData.price === 'number' ? 
-      `$${tokenData.price.toFixed(4)}` : 'Unknown';
+    const tokenName = tokenInfo.name || 'Unknown Token';
     
-    // Calculate fee (0.8% normal, 0.712% with referral - 11% discount)
-    const normalFee = 0.8;
-    const referralFee = normalFee * 0.89; // 11% less
+    // Format data for display
+    const price = typeof tokenData.price === 'number' ? 
+      tokenData.price : 0;
     
-    // Send message with sell options
+    const marketCap = typeof tokenData.marketCap === 'number' ? 
+      `$${tokenData.marketCap.toLocaleString()}` : 
+      'Unknown';
+      
+    const liquidity = typeof tokenData.liquidity === 'number' ? 
+      `$${tokenData.liquidity.toLocaleString()}` : 
+      'Unknown';
+    
+    // Mock token balance - would come from user's actual holdings
+    const tokenBalance = 1865.569512;
+    const tokenValueUsd = tokenBalance * price;
+    
+    // Mock entry data - would come from user's actual position
+    const entryPrice = price * 100; // Simulate a 99% loss for example
+    const entryMC = entryPrice * (tokenData.marketCap / price);
+    
+    // Calculate PNL
+    const pnlUsd = tokenValueUsd - (tokenBalance * entryPrice);
+    const pnlUsdPercent = (price / entryPrice - 1) * 100;
+    
+    // SOL price for conversion
+    const solPrice = 100; // Mock SOL price
+    const pnlSol = pnlUsd / solPrice;
+    const pnlSolPercent = pnlUsdPercent; // Same percentage
+    
+    // Create links
+    const dexScreenerLink = `https://dexscreener.com/solana/${tokenAddress}`;
+    const swapLink = `https://t.me/sol_trojanbot/bmaps?startapp=${tokenAddress}_sol`;
+    const refLink = `https://t.me/sol_trojanbot?start=r-${ctx.from.username}-${tokenAddress}`;
+    const walletLink = `https://t.me/sol_trojanbot?start=walletMenu`;
+    
+    // Build message
+    let message = `💸 *Sell $${tokenSymbol}* — ${tokenName}\n`;
+    message += `[📈](${dexScreenerLink}) [🫧](${swapLink})\n`;
+    message += `\`${tokenAddress}\`\n`;
+    message += `[Share token with your Reflink](${refLink})\n\n`;
+    
+    message += `Balance: ${tokenBalance.toFixed(6)} ${tokenSymbol} ($${tokenValueUsd.toFixed(2)}) — [W1 ✏️](${walletLink})\n`;
+    message += `Price: $${price.toFixed(8)} — LIQ: ${liquidity} — MC: ${marketCap}\n`;
+    
+    // Add renounced status if available
+    const isRenounced = tokenInfo.isRenounced || false;
+    message += `${isRenounced ? 'Renounced ✅' : 'Not Renounced ⚠️'}\n\n`;
+    
+    // Add entry and PNL info
+    message += `Avg Entry Price & MC: $${entryPrice.toFixed(6)} — $${entryMC.toLocaleString()}\n`;
+    
+    // Format PNL with color indicators
+    const usdPnlColor = pnlUsdPercent >= 0 ? '🟩' : '🟥';
+    const solPnlColor = pnlSolPercent >= 0 ? '🟩' : '🟥';
+    
+    message += `PNL USD: ${pnlUsdPercent.toFixed(2)}% ($${pnlUsd.toFixed(2)}) ${usdPnlColor}\n`;
+    message += `PNL SOL: ${pnlSolPercent.toFixed(2)}% (${pnlSol.toFixed(3)} SOL) ${solPnlColor}\n\n`;
+    
+    // Add sell information
+    message += `You Sell:\n`;
+    message += `${Math.floor(tokenBalance)} ${tokenSymbol} ($${tokenValueUsd.toFixed(2)}) [⇄](https://t.me/sol_trojanbot?start=switchToBuy) ${(tokenValueUsd / solPrice).toFixed(3)} SOL ($${tokenValueUsd.toFixed(2)})\n`;
+    message += `Price Impact: 0.00%`;
+    
+    // Create sell options keyboard
     const sellKeyboard = Markup.inlineKeyboard([
       [
-        Markup.button.callback('25%', `confirm_sell_${tokenAddress}_25`),
-        Markup.button.callback('50%', `confirm_sell_${tokenAddress}_50`)
+        Markup.button.callback('Sell 25%', `confirm_sell_${tokenAddress}_25`),
+        Markup.button.callback('Sell 50%', `confirm_sell_${tokenAddress}_50`)
       ],
       [
-        Markup.button.callback('75%', `confirm_sell_${tokenAddress}_75`),
-        Markup.button.callback('All', `confirm_sell_${tokenAddress}_100`)
+        Markup.button.callback('Sell 75%', `confirm_sell_${tokenAddress}_75`),
+        Markup.button.callback('Sell 100%', `confirm_sell_${tokenAddress}_100`)
       ],
-      [Markup.button.callback('Custom Amount', `custom_sell_${tokenAddress}`)],
-      [Markup.button.callback('🔙 Back', `token_info_${tokenAddress}`)]
+      [
+        Markup.button.callback('Custom %', `custom_sell_${tokenAddress}`),
+        Markup.button.callback('Slippage: 1%', `set_slippage_${tokenAddress}_1`)
+      ],
+      [
+        Markup.button.callback('🔙 Back', 'refresh_data')
+      ]
     ]);
     
-    return ctx.reply(
-      `💸 *Sell ${tokenSymbol}*\n\n` +
-      `Current Price: ${tokenPrice}\n\n` +
-      `Trading Fee: ${normalFee}% (${referralFee}% with referral)\n\n` +
-      `How much would you like to sell?`,
-      {
-        parse_mode: 'Markdown',
-        ...sellKeyboard
-      }
-    );
+    return ctx.reply(message, {
+      parse_mode: 'Markdown',
+      disable_web_page_preview: true,
+      ...sellKeyboard
+    });
   } catch (error) {
     logger.error(`Sell token handler error: ${error.message}`);
     return ctx.reply('Sorry, something went wrong. Please try again later.');
@@ -291,9 +362,42 @@ const registerTokenHandlers = (bot) => {
   });
   
   bot.action('back_to_menu', async (ctx) => {
-    await ctx.answerCbQuery();
-    // Return to main menu
-    return ctx.reply('Returning to main menu...');
+    try {
+      await ctx.answerCbQuery();
+      // Redirect to refresh_data handler to show main menu
+      return ctx.callbackQuery.data = 'refresh_data';
+    } catch (error) {
+      logger.error(`Back to menu error: ${error.message}`);
+      return ctx.reply('Returning to main menu...');
+    }
+  });
+  
+  // Handle track token action
+  bot.action(/track_(.+)/, async (ctx) => {
+    try {
+      await ctx.answerCbQuery();
+      const tokenAddress = ctx.match[1];
+      
+      // Get token info
+      const tokenData = await getTokenPrice(tokenAddress);
+      const tokenInfo = tokenData.tokenInfo || {};
+      const tokenSymbol = tokenInfo.symbol || '???';
+      
+      // Reply with confirmation
+      return ctx.reply(
+        `✅ Now tracking ${tokenSymbol}!\n\nYou'll be notified of significant price movements.`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [Markup.button.callback('🔙 Back', 'refresh_data')]
+            ]
+          }
+        }
+      );
+    } catch (error) {
+      logger.error(`Track token error: ${error.message}`);
+      return ctx.reply('Sorry, something went wrong. Please try again later.');
+    }
   });
 };
 
