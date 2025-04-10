@@ -1,13 +1,11 @@
-2025-04-09T20:56:09.014Z info: Cleared log files on startup
-2025-04-09T20:56:09.556Z info: MongoDB Connected
-2025-04-09T20:56:09.556Z info: Connected to MongoDB
-2025-04-09T20:56:09.556Z info: Database connection established
-2025-04-09T20:57:00.124Z info: Scheduled price update: SOL = $118.98
-2025-04-09T20:57:00.128Z info: Scheduled price update: SOL = $118.98
-2025-04-09T20:57:15.777Z info: Received /start command from user: 7499348704
-2025-04-09T20:57:15.926Z info: Reset state for user: 7499348704
-2025-04-09T20:57:19.459Z error: Error getting token balances: Request failed with status code 400
-2025-04-09T20:57:23.841Z error: Error getting token balances: Request failed with status code 400
-2025-04-09T20:57:28.708Z error: Error fetching SOL price: Request failed with status code 429
-2025-04-09T20:57:29.905Z error: Error fetching SOL price: Request failed with status code 429
-2025-04-09T20:57:29.963Z error: Error updating/sending message: 400: Bad Request: message is not modified: specified new message content and reply markup are exactly the same as a current content and reply markup of the message
+2025-04-10T14:17:52.647Z info: Cleared log files on startup
+2025-04-10T14:17:53.157Z info: MongoDB Connected
+2025-04-10T14:17:53.157Z info: Connected to MongoDB
+2025-04-10T14:17:53.158Z info: Database connection established
+2025-04-10T14:17:56.700Z info: Received /start command from user: 7499348704
+2025-04-10T14:17:58.574Z error: Error getting token balances: Request failed with status code 400
+2025-04-10T14:18:00.061Z info: Scheduled price update: SOL = $112.82
+2025-04-10T14:18:00.440Z info: SIGINT received. Stopping bot...
+2025-04-10T14:18:03.472Z info: Bot started successfully
+2025-04-10T14:19:00.113Z info: Scheduled price update: SOL = $112.85
+2025-04-10T14:20:00.098Z info: Scheduled price update: SOL = $112.88

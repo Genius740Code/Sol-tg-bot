@@ -2,6 +2,7 @@ const { getTokenInfo, getTokenPrice, isRateLimited } = require('../../utils/wall
 const { Markup } = require('telegraf');
 const { logger } = require('../database');
 const axios = require('axios');
+const userService = require('../services/userService');
 
 // Handle token address analysis
 const tokenInfoHandler = async (ctx) => {
@@ -117,9 +118,29 @@ const buyTokenHandler = async (ctx, tokenAddress) => {
     // If no tokenAddress provided, prompt for token address
     if (!tokenAddress) {
       return ctx.reply(
-        `Enter a token CA:`,
+        `💰 *Buy ${tokenSymbol}*\n\n` +
+        `Current Price: ${tokenPrice}\n` +
+        `Market Cap: ${marketCap}\n\n` +
+        `Trading Fee: ${normalFee}% (${referralFee}% with referral)\n\n` +
+        `Enter token CA:`,
         {
-          parse_mode: 'Markdown'
+          parse_mode: 'Markdown',
+          reply_markup: Markup.inlineKeyboard([
+            [
+              Markup.button.callback('0.1 SOL', `confirm_buy_${tokenAddress}_0.1`),
+              Markup.button.callback('0.2 SOL', `confirm_buy_${tokenAddress}_0.2`)
+            ],
+            [
+              Markup.button.callback('0.5 SOL', `confirm_buy_${tokenAddress}_0.5`),
+              Markup.button.callback('1 SOL', `confirm_buy_${tokenAddress}_1`)
+            ],
+            [
+              Markup.button.callback('Custom Amount', `custom_buy_${tokenAddress}`)
+            ],
+            [
+              Markup.button.callback('🔙 Back', 'refresh_data')
+            ]
+          ])
         }
       );
     }
@@ -144,7 +165,7 @@ const buyTokenHandler = async (ctx, tokenAddress) => {
       `Current Price: ${tokenPrice}\n` +
       `Market Cap: ${marketCap}\n\n` +
       `Trading Fee: ${normalFee}% (${referralFee}% with referral)\n\n` +
-      `Please enter the amount of SOL you want to use:`,
+      `Enter token CA:`,
       {
         parse_mode: 'Markdown',
         reply_markup: Markup.inlineKeyboard([
@@ -174,6 +195,13 @@ const buyTokenHandler = async (ctx, tokenAddress) => {
 // Sell token handler
 const sellTokenHandler = async (ctx, tokenAddress) => {
   try {
+    // Get user
+    const user = await userService.getUserByTelegramId(ctx.from.id);
+    
+    if (!user) {
+      return ctx.reply('You need to start the bot first with /start');
+    }
+    
     // Get token info
     const tokenData = await getTokenPrice(tokenAddress);
     const tokenInfo = tokenData.tokenInfo || {};
@@ -192,56 +220,29 @@ const sellTokenHandler = async (ctx, tokenAddress) => {
       `$${tokenData.liquidity.toLocaleString()}` : 
       'Unknown';
     
-    // Mock token balance - would come from user's actual holdings
-    const tokenBalance = 1865.569512;
+    // Get user token balance - this would be implemented in your wallet utils
+    const tokenBalance = await getUserTokenBalance(user.getActiveWallet().address, tokenAddress);
     const tokenValueUsd = tokenBalance * price;
     
-    // Mock entry data - would come from user's actual position
-    const entryPrice = price * 100; // Simulate a 99% loss for example
-    const entryMC = entryPrice * (tokenData.marketCap / price);
-    
-    // Calculate PNL
-    const pnlUsd = tokenValueUsd - (tokenBalance * entryPrice);
-    const pnlUsdPercent = (price / entryPrice - 1) * 100;
-    
-    // SOL price for conversion
-    const solPrice = 100; // Mock SOL price
-    const pnlSol = pnlUsd / solPrice;
-    const pnlSolPercent = pnlUsdPercent; // Same percentage
+    // Get SOL price for conversion
+    const solPrice = await getSolPrice();
     
     // Create links
     const dexScreenerLink = `https://dexscreener.com/solana/${tokenAddress}`;
-    const swapLink = `https://t.me/sol_trojanbot/bmaps?startapp=${tokenAddress}_sol`;
-    const refLink = `https://t.me/sol_trojanbot?start=r-${ctx.from.username}-${tokenAddress}`;
-    const walletLink = `https://t.me/sol_trojanbot?start=walletMenu`;
     
     // Build message
-    let message = `💸 *Sell $${tokenSymbol}* — ${tokenName}\n`;
-    message += `[📈](${dexScreenerLink}) [🫧](${swapLink})\n`;
-    message += `\`${tokenAddress}\`\n`;
-    message += `[Share token with your Reflink](${refLink})\n\n`;
+    let message = `💸 *Sell ${tokenSymbol}*\n\n`;
+    message += `Token: ${tokenName} (${tokenSymbol})\n`;
+    message += `Address: \`${tokenAddress}\`\n\n`;
     
-    message += `Balance: ${tokenBalance.toFixed(6)} ${tokenSymbol} ($${tokenValueUsd.toFixed(2)}) — [W1 ✏️](${walletLink})\n`;
-    message += `Price: $${price.toFixed(8)} — LIQ: ${liquidity} — MC: ${marketCap}\n`;
+    message += `Your Balance: ${tokenBalance.toFixed(6)} ${tokenSymbol}\n`;
+    message += `Value: $${tokenValueUsd.toFixed(2)} (${(tokenValueUsd / solPrice).toFixed(4)} SOL)\n\n`;
     
-    // Add renounced status if available
-    const isRenounced = tokenInfo.isRenounced || false;
-    message += `${isRenounced ? 'Renounced ✅' : 'Not Renounced ⚠️'}\n\n`;
+    message += `Current Price: $${price.toFixed(8)}\n`;
+    message += `Liquidity: ${liquidity}\n`;
+    message += `Market Cap: ${marketCap}\n\n`;
     
-    // Add entry and PNL info
-    message += `Avg Entry Price & MC: $${entryPrice.toFixed(6)} — $${entryMC.toLocaleString()}\n`;
-    
-    // Format PNL with color indicators
-    const usdPnlColor = pnlUsdPercent >= 0 ? '🟩' : '🟥';
-    const solPnlColor = pnlSolPercent >= 0 ? '🟩' : '🟥';
-    
-    message += `PNL USD: ${pnlUsdPercent.toFixed(2)}% ($${pnlUsd.toFixed(2)}) ${usdPnlColor}\n`;
-    message += `PNL SOL: ${pnlSolPercent.toFixed(2)}% (${pnlSol.toFixed(3)} SOL) ${solPnlColor}\n\n`;
-    
-    // Add sell information
-    message += `You Sell:\n`;
-    message += `${Math.floor(tokenBalance)} ${tokenSymbol} ($${tokenValueUsd.toFixed(2)}) [⇄](https://t.me/sol_trojanbot?start=switchToBuy) ${(tokenValueUsd / solPrice).toFixed(3)} SOL ($${tokenValueUsd.toFixed(2)})\n`;
-    message += `Price Impact: 0.00%`;
+    message += `Select amount to sell:`;
     
     // Create sell options keyboard
     const sellKeyboard = Markup.inlineKeyboard([
@@ -271,6 +272,13 @@ const sellTokenHandler = async (ctx, tokenAddress) => {
     logger.error(`Sell token handler error: ${error.message}`);
     return ctx.reply('Sorry, something went wrong. Please try again later.');
   }
+};
+
+// Helper function to get user token balance (placeholder)
+const getUserTokenBalance = async (walletAddress, tokenAddress) => {
+  // This would be implemented to fetch actual token balance
+  // For now return a small random amount
+  return Math.random() * 100 + 10;
 };
 
 // Register token scene

@@ -124,10 +124,13 @@ const confirmExportKeyHandler = async (ctx) => {
       return ctx.reply('You need to start the bot first with /start');
     }
     
-    // Decrypt private key
+    // Get active wallet
+    const activeWallet = user.getActiveWallet();
+    
+    // Decrypt private key from active wallet
     let privateKey;
     try {
-      privateKey = decrypt(user.encryptedPrivateKey);
+      privateKey = decrypt(activeWallet.encryptedPrivateKey);
     } catch (error) {
       logger.error(`Error decrypting private key: ${error.message}`);
       return ctx.reply('Error decrypting your private key. Please contact support.');
@@ -145,6 +148,28 @@ const confirmExportKeyHandler = async (ctx) => {
         ])
       }
     );
+    
+    // Also show mnemonic if available
+    if (activeWallet.mnemonic) {
+      try {
+        const mnemonic = decrypt(activeWallet.mnemonic);
+        if (mnemonic) {
+          await ctx.reply(
+            '🔐 *Your Recovery Phrase:*\n\n' +
+            `\`${mnemonic}\`\n\n` +
+            '⚠️ DELETE THIS MESSAGE after saving your recovery phrase!',
+            {
+              parse_mode: 'Markdown',
+              ...Markup.inlineKeyboard([
+                [Markup.button.callback('🔙 Back to Wallet Management', 'wallet_management')]
+              ])
+            }
+          );
+        }
+      } catch (error) {
+        logger.error(`Error decrypting mnemonic: ${error.message}`);
+      }
+    }
   } catch (error) {
     logger.error(`Confirm export key error: ${error.message}`);
     return ctx.reply('Sorry, something went wrong. Please try again later.');
@@ -216,19 +241,60 @@ const confirmNewWalletHandler = async (ctx) => {
       return ctx.reply('You need to start the bot first with /start');
     }
     
+    // Check if user already has 6 wallets
+    if (user.wallets && user.wallets.length >= 6) {
+      return ctx.reply(
+        '❌ *Maximum Wallets Reached*\n\n' +
+        'You already have 6 wallets, which is the maximum allowed.\n' +
+        'Please delete an existing wallet before creating a new one.',
+        {
+          parse_mode: 'Markdown',
+          ...Markup.inlineKeyboard([
+            [Markup.button.callback('🔙 Back to Wallet Management', 'wallet_management')]
+          ])
+        }
+      );
+    }
+    
     // Generate new wallet
     const newWallet = await generateWallet();
     
-    // Save new wallet
+    // Set all existing wallets to inactive
+    if (user.wallets && user.wallets.length > 0) {
+      user.wallets.forEach(wallet => {
+        wallet.isActive = false;
+      });
+    }
+    
+    // Determine wallet name
+    const walletNumber = (user.wallets ? user.wallets.length : 0) + 1;
+    const walletName = `Wallet ${walletNumber}`;
+    
+    // Add new wallet to user's wallets array
+    if (!user.wallets) {
+      user.wallets = [];
+    }
+    
+    user.wallets.push({
+      name: walletName,
+      address: newWallet.publicKey,
+      encryptedPrivateKey: encrypt(newWallet.privateKey),
+      mnemonic: encrypt(newWallet.mnemonic),
+      isActive: true
+    });
+    
+    // Also update main wallet fields for compatibility
     user.walletAddress = newWallet.publicKey;
     user.encryptedPrivateKey = encrypt(newWallet.privateKey);
-    user.mnemonic = newWallet.mnemonic;
+    user.mnemonic = encrypt(newWallet.mnemonic);
+    
     await user.save();
     
     // Confirm new wallet creation
     await ctx.reply(
       '✅ *New Wallet Created!*\n\n' +
-      `Your new wallet address is:\n\`${newWallet.publicKey}\`\n\n` +
+      `Wallet Name: *${walletName}*\n` +
+      `Address: \`${newWallet.publicKey}\`\n\n` +
       'Make sure to backup your private key!',
       {
         parse_mode: 'Markdown',
@@ -290,39 +356,79 @@ const handleWalletTextInput = async (ctx) => {
     });
     
     if (userState === 'IMPORTING_WALLET') {
+      // Check if user already has 6 wallets
+      if (user.wallets && user.wallets.length >= 6) {
+        return ctx.reply(
+          '❌ *Maximum Wallets Reached*\n\n' +
+          'You already have 6 wallets, which is the maximum allowed.\n' +
+          'Please delete an existing wallet before importing a new one.',
+          {
+            parse_mode: 'Markdown',
+            ...Markup.inlineKeyboard([
+              [Markup.button.callback('🔙 Back to Wallet Management', 'wallet_management')]
+            ])
+          }
+        );
+      }
+      
       // Import wallet
       const privateKeyOrMnemonic = ctx.message.text.trim();
       
       try {
         const importedWallet = await importWalletFromPrivateKey(privateKeyOrMnemonic);
         
-        // Update user wallet
+        // Check if wallet already exists
+        const walletExists = user.wallets.some(w => w.address === importedWallet.publicKey);
+        if (walletExists) {
+          return ctx.reply(
+            '❌ *Wallet Already Exists*\n\n' +
+            'This wallet is already in your wallet list.\n' +
+            'Please use wallet switching to select it.',
+            {
+              parse_mode: 'Markdown',
+              ...Markup.inlineKeyboard([
+                [Markup.button.callback('🔙 Back to Wallet Management', 'wallet_management')]
+              ])
+            }
+          );
+        }
+        
+        // Set all existing wallets to inactive
         user.wallets.forEach(w => {
           w.isActive = false;
         });
         
-        const walletName = `Wallet ${user.wallets.length + 1}`;
+        // Determine wallet name
+        const walletNumber = user.wallets.length + 1;
+        const walletName = `Wallet ${walletNumber}`;
         
+        // Add new wallet
         user.wallets.push({
           name: walletName,
           address: importedWallet.publicKey,
+          encryptedPrivateKey: encrypt(importedWallet.privateKey),
+          mnemonic: importedWallet.mnemonic ? encrypt(importedWallet.mnemonic) : null,
           isActive: true
         });
         
+        // Also update main wallet fields for compatibility
+        user.walletAddress = importedWallet.publicKey;
         user.encryptedPrivateKey = encrypt(importedWallet.privateKey);
         if (importedWallet.mnemonic) {
-          user.mnemonic = importedWallet.mnemonic;
+          user.mnemonic = encrypt(importedWallet.mnemonic);
         }
+        
         await user.save();
         
         return ctx.reply(
           '✅ *Wallet Imported Successfully!*\n\n' +
-          `Your wallet address is:\n\`${importedWallet.publicKey}\`\n\n` +
-          'Your wallet has been updated.',
+          `Wallet Name: *${walletName}*\n` +
+          `Address: \`${importedWallet.publicKey}\`\n\n` +
+          'Your new wallet is now active.',
           {
             parse_mode: 'Markdown',
             ...Markup.inlineKeyboard([
-              [Markup.button.callback('🔙 Back to Menu', 'refresh_data')]
+              [Markup.button.callback('🔙 Back to Wallet Management', 'wallet_management')]
             ])
           }
         );

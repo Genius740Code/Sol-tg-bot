@@ -114,8 +114,8 @@ const refreshHandler = async (ctx) => {
     const messageText = 
       `🤖 *Crypto Trading Bot* 🤖\n\n` +
       `👛 Wallet: \`${walletAddress}\`\n\n` +
-      `💎 SOL Balance: ${formatBalance(solBalance)} SOL\n` +
-      `💵 Value: $${formatPrice(balanceUsd)}\n` +
+      `💎 SOL Balance: ${solBalance.toFixed(4)} SOL\n` +
+      `💵 Value: $${balanceUsd.toFixed(2)}\n` +
       `📈 SOL Price: $${formatPrice(solPrice)}\n\n` +
       `${feeText}`;
 

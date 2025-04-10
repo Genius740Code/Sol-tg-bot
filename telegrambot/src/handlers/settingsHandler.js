@@ -6,9 +6,9 @@ const { encrypt, decrypt } = require('../../utils/encryption');
 
 // Fee constants
 const FEE_TYPES = {
-  FAST: { name: 'Fast', percentage: 1.5 },
-  TURBO: { name: 'Turbo', percentage: 2.5 },
-  CUSTOM: { name: 'Custom', percentage: 0.5 } // Lower fee but may take longer
+  FAST: { name: 'Fast', percentage: 0.001 },
+  TURBO: { name: 'Turbo', percentage: 0.005 },
+  CUSTOM: { name: 'Custom', percentage: 0.001 } // Default custom value
 };
 
 // Show settings menu
@@ -19,17 +19,42 @@ const settingsHandler = async (ctx) => {
       return ctx.reply('Please wait a moment before trying again.');
     }
 
+    // Get user
+    const user = await userService.getUserByTelegramId(ctx.from.id);
+    
+    if (!user) {
+      return ctx.reply('Please start the bot first by sending /start');
+    }
+
+    // Get current fee type (default to FAST if not set)
+    const currentFeeType = user.settings?.tradingSettings?.feeType || 'FAST';
+    const feePercentage = FEE_TYPES[currentFeeType].percentage;
+
     await ctx.reply('⚙️ *Settings Menu*',
       {
         parse_mode: 'Markdown',
         ...Markup.inlineKeyboard([
           [
-            Markup.button.callback('🔧 Transaction Settings', 'tx_settings'),
-            Markup.button.callback('👛 Wallet Management', 'wallet_management')
+            Markup.button.callback(`🔧 Fee: ${currentFeeType.toLowerCase()} (${feePercentage})`, 'tx_settings')
           ],
           [
-            Markup.button.callback('🔔 Notifications', 'notifications_settings'),
-            Markup.button.callback('📊 Trading Preferences', 'trading_preferences')
+            Markup.button.callback('💰 Buy Settings', 'buy_settings'),
+            Markup.button.callback('💸 Sell Settings', 'sell_settings')
+          ],
+          [
+            Markup.button.callback('🛡️ MEV Protection', 'mev_protection'),
+            Markup.button.callback('🔄 Process Type', 'process_type')
+          ],
+          [
+            Markup.button.callback('⚡ Presets', 'trading_presets'),
+            Markup.button.callback('✅ Confirm Trades', 'confirm_trades')
+          ],
+          [
+            Markup.button.callback('🔐 Account Security', 'account_security'),
+            Markup.button.callback('💤 AFK Mode', 'afk_mode')
+          ],
+          [
+            Markup.button.callback('🤖 Bot Clicks', 'bot_clicks')
           ],
           [Markup.button.callback('🔙 Back to Menu', 'refresh_data')]
         ])
@@ -44,6 +69,8 @@ const settingsHandler = async (ctx) => {
 // Transaction settings handler
 const txSettingsHandler = async (ctx) => {
   try {
+    await ctx.answerCbQuery();
+    
     // Get user's current settings
     const user = await userService.getUserByTelegramId(ctx.from.id);
     
@@ -52,20 +79,33 @@ const txSettingsHandler = async (ctx) => {
     }
 
     // Get current fee type (default to FAST if not set)
-    const currentFeeType = user.feeType || 'FAST';
+    const currentFeeType = user.settings?.tradingSettings?.feeType || 'FAST';
+    
+    // Get current buy and sell tip values (default to 0.001)
+    const buyTip = user.settings?.tradingSettings?.buyTip || 0.001;
+    const sellTip = user.settings?.tradingSettings?.sellTip || 0.001;
     
     await ctx.reply(
-      `🔧 Transaction Settings\n\n` +
-      `Current Fee Type: ${FEE_TYPES[currentFeeType].name} (${FEE_TYPES[currentFeeType].percentage}%)\n\n` +
+      `🔧 *Fee Settings*\n\n` +
+      `Current Fee Type: ${FEE_TYPES[currentFeeType].name} (${FEE_TYPES[currentFeeType].percentage})\n\n` +
+      `Buy Tip: ${buyTip}\n` +
+      `Sell Tip: ${sellTip}\n\n` +
       `Select a transaction fee type:`,
-      Markup.inlineKeyboard([
-        [
-          Markup.button.callback('Fast (1.5%)', 'fee_FAST'),
-          Markup.button.callback('Turbo (2.5%)', 'fee_TURBO')
-        ],
-        [Markup.button.callback('Custom (0.5%)', 'fee_CUSTOM')],
-        [Markup.button.callback('⬅️ Back to Settings', 'back_to_settings')]
-      ])
+      {
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard([
+          [
+            Markup.button.callback(`Fast (${FEE_TYPES.FAST.percentage})`, 'fee_FAST'),
+            Markup.button.callback(`Turbo (${FEE_TYPES.TURBO.percentage})`, 'fee_TURBO')
+          ],
+          [Markup.button.callback(`Custom Fee`, 'fee_CUSTOM')],
+          [
+            Markup.button.callback(`Buy Tip: ${buyTip}`, 'set_buy_tip'),
+            Markup.button.callback(`Sell Tip: ${sellTip}`, 'set_sell_tip')
+          ],
+          [Markup.button.callback('⬅️ Back to Settings', 'settings')]
+        ])
+      }
     );
   } catch (error) {
     logger.error(`Transaction settings error: ${error.message}`);
@@ -76,24 +116,49 @@ const txSettingsHandler = async (ctx) => {
 // Handle fee type selection
 const feeTypeHandler = async (ctx) => {
   try {
+    await ctx.answerCbQuery();
+    
     const feeType = ctx.match[0].split('_')[1]; // Extract fee type from callback
     
     if (!FEE_TYPES[feeType]) {
       return ctx.answerCbQuery('Invalid fee type selected');
     }
+    
+    // If custom fee, prompt for value
+    if (feeType === 'CUSTOM') {
+      // Set state to collect custom fee input
+      await userService.updateUserSettings(ctx.from.id, { 
+        state: 'CUSTOM_FEE_INPUT'
+      });
+      
+      return ctx.reply(
+        '💰 *Custom Fee Setting*\n\n' +
+        'Please enter your desired fee value between 0 and 0.1:\n' +
+        'Example: 0.002 (for 0.2%)',
+        {
+          parse_mode: 'Markdown',
+          ...Markup.inlineKeyboard([
+            [Markup.button.callback('Cancel', 'tx_settings')]
+          ])
+        }
+      );
+    }
 
     // Update user's fee type preference
-    await userService.updateUserSettings(ctx.from.id, { feeType });
+    await userService.updateUserSettings(ctx.from.id, { 
+      'settings.tradingSettings.feeType': feeType 
+    });
 
-    await ctx.answerCbQuery(`Fee type updated to ${FEE_TYPES[feeType].name}`);
     await ctx.editMessageText(
-      `✅ Fee type updated to ${FEE_TYPES[feeType].name} (${FEE_TYPES[feeType].percentage}%)\n\n` +
-      `Note: ${feeType === 'CUSTOM' ? 'Custom fee is lower but transactions may take longer to process.' : 
-         feeType === 'TURBO' ? 'Turbo fee ensures fastest transaction processing but costs more.' : 
+      `✅ Fee type updated to ${FEE_TYPES[feeType].name} (${FEE_TYPES[feeType].percentage})\n\n` +
+      `Note: ${feeType === 'TURBO' ? 'Turbo fee ensures fastest transaction processing but costs more.' : 
          'Fast fee provides a good balance between speed and cost.'}`,
-      Markup.inlineKeyboard([
-        [Markup.button.callback('⬅️ Back to Transaction Settings', 'tx_settings')]
-      ])
+      {
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback('⬅️ Back to Transaction Settings', 'tx_settings')]
+        ])
+      }
     );
   } catch (error) {
     logger.error(`Fee type update error: ${error.message}`);
@@ -404,7 +469,7 @@ const updateSlippageHandler = async (ctx) => {
   }
 };
 
-// Handle text input for private key during wallet import
+// Handle text input for settings that require it
 const textInputHandler = async (bot) => {
   // Register general message handler for private key input during wallet import
   bot.on('text', async (ctx, next) => {
@@ -486,64 +551,282 @@ const textInputHandler = async (bot) => {
   });
 };
 
+// Buy tip handler
+const setBuyTipHandler = async (ctx) => {
+  try {
+    await ctx.answerCbQuery('Set buy tip feature coming soon');
+    
+    // Just return to fee settings for now
+    return txSettingsHandler(ctx);
+  } catch (error) {
+    logger.error(`Set buy tip error: ${error.message}`);
+    ctx.reply('Sorry, there was an error. Please try again later.');
+  }
+};
+
+// Sell tip handler
+const setSellTipHandler = async (ctx) => {
+  try {
+    await ctx.answerCbQuery('Set sell tip feature coming soon');
+    
+    // Just return to fee settings for now
+    return txSettingsHandler(ctx);
+  } catch (error) {
+    logger.error(`Set sell tip error: ${error.message}`);
+    ctx.reply('Sorry, there was an error. Please try again later.');
+  }
+};
+
+// Buy settings handler
+const buySettingsHandler = async (ctx) => {
+  try {
+    await ctx.answerCbQuery('Buy settings feature coming soon');
+    
+    // Just return to main settings for now
+    return settingsHandler(ctx);
+  } catch (error) {
+    logger.error(`Buy settings error: ${error.message}`);
+    ctx.reply('Sorry, there was an error. Please try again later.');
+  }
+};
+
+// Sell settings handler
+const sellSettingsHandler = async (ctx) => {
+  try {
+    await ctx.answerCbQuery('Sell settings feature coming soon');
+    
+    // Just return to main settings for now
+    return settingsHandler(ctx);
+  } catch (error) {
+    logger.error(`Sell settings error: ${error.message}`);
+    ctx.reply('Sorry, there was an error. Please try again later.');
+  }
+};
+
+// MEV protection handler
+const mevProtectionHandler = async (ctx) => {
+  try {
+    await ctx.answerCbQuery('MEV protection feature coming soon');
+    
+    // Just return to main settings for now
+    return settingsHandler(ctx);
+  } catch (error) {
+    logger.error(`MEV protection error: ${error.message}`);
+    ctx.reply('Sorry, there was an error. Please try again later.');
+  }
+};
+
+// Process type handler
+const processTypeHandler = async (ctx) => {
+  try {
+    await ctx.answerCbQuery('Process type selection coming soon');
+    
+    // Just return to main settings for now
+    return settingsHandler(ctx);
+  } catch (error) {
+    logger.error(`Process type error: ${error.message}`);
+    ctx.reply('Sorry, there was an error. Please try again later.');
+  }
+};
+
+// Trading presets handler
+const tradingPresetsHandler = async (ctx) => {
+  try {
+    await ctx.answerCbQuery('Trading presets feature coming soon');
+    
+    // Just return to main settings for now
+    return settingsHandler(ctx);
+  } catch (error) {
+    logger.error(`Trading presets error: ${error.message}`);
+    ctx.reply('Sorry, there was an error. Please try again later.');
+  }
+};
+
+// Confirm trades handler
+const confirmTradesHandler = async (ctx) => {
+  try {
+    await ctx.answerCbQuery('Confirm trades settings coming soon');
+    
+    // Just return to main settings for now
+    return settingsHandler(ctx);
+  } catch (error) {
+    logger.error(`Confirm trades error: ${error.message}`);
+    ctx.reply('Sorry, there was an error. Please try again later.');
+  }
+};
+
+// Account security handler
+const accountSecurityHandler = async (ctx) => {
+  try {
+    await ctx.answerCbQuery('Account security settings coming soon');
+    
+    // Just return to main settings for now
+    return settingsHandler(ctx);
+  } catch (error) {
+    logger.error(`Account security error: ${error.message}`);
+    ctx.reply('Sorry, there was an error. Please try again later.');
+  }
+};
+
+// AFK mode handler
+const afkModeHandler = async (ctx) => {
+  try {
+    await ctx.answerCbQuery('AFK mode coming soon');
+    
+    // Just return to main settings for now
+    return settingsHandler(ctx);
+  } catch (error) {
+    logger.error(`AFK mode error: ${error.message}`);
+    ctx.reply('Sorry, there was an error. Please try again later.');
+  }
+};
+
+// Bot clicks handler
+const botClicksHandler = async (ctx) => {
+  try {
+    await ctx.answerCbQuery('Bot clicks settings coming soon');
+    
+    // Just return to main settings for now
+    return settingsHandler(ctx);
+  } catch (error) {
+    logger.error(`Bot clicks error: ${error.message}`);
+    ctx.reply('Sorry, there was an error. Please try again later.');
+  }
+};
+
+// Create wallet handler
+const createWalletHandler = async (ctx) => {
+  try {
+    await ctx.answerCbQuery('Creating a new wallet...');
+    
+    // Generate new wallet through the userService
+    const user = await userService.generateNewWallet(ctx.from.id);
+    
+    if (!user) {
+      return ctx.reply('Failed to create wallet. Please try again later.');
+    }
+    
+    // Get the active wallet
+    const activeWallet = user.getActiveWallet();
+    
+    await ctx.reply(
+      '✅ *New Wallet Created*\n\n' +
+      `Name: ${activeWallet.name}\n` +
+      `Address: \`${activeWallet.address}\`\n\n` +
+      'Your new wallet is now active.',
+      {
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback('🔑 Export Private Key', 'export_key')],
+          [Markup.button.callback('⬅️ Back to Settings', 'settings')]
+        ])
+      }
+    );
+  } catch (error) {
+    logger.error(`Create wallet error: ${error.message}`);
+    await ctx.reply('Failed to create new wallet. Please try again later.');
+  }
+};
+
 // Register settings handlers
 const registerSettingsHandlers = (bot) => {
   // Main settings menu
   bot.hears('⚙️ Settings', settingsHandler);
   bot.command('settings', settingsHandler);
+  bot.action('settings', settingsHandler);
   
-  // Settings sections
-  bot.hears('🔧 Transaction Settings', txSettingsHandler);
-  bot.hears('👛 Wallet Management', walletManagementHandler);
-  bot.hears('📊 Trading Preferences', tradingPreferencesHandler);
-  
-  // Transaction settings
+  // Transaction fee settings
   bot.action('tx_settings', txSettingsHandler);
   bot.action(/fee_(FAST|TURBO|CUSTOM)/, feeTypeHandler);
+  bot.action('set_buy_tip', setBuyTipHandler);
+  bot.action('set_sell_tip', setSellTipHandler);
   
-  // Wallet management
+  // Buy/Sell settings
+  bot.action('buy_settings', buySettingsHandler);
+  bot.action('sell_settings', sellSettingsHandler);
+  
+  // MEV and process settings
+  bot.action('mev_protection', mevProtectionHandler);
+  bot.action('process_type', processTypeHandler);
+  
+  // Other settings
+  bot.action('trading_presets', tradingPresetsHandler);
+  bot.action('confirm_trades', confirmTradesHandler);
+  bot.action('account_security', accountSecurityHandler);
+  bot.action('afk_mode', afkModeHandler);
+  bot.action('bot_clicks', botClicksHandler);
+  
+  // Wallet management (keep existing)
   bot.action('wallet_management', walletManagementHandler);
   bot.action('export_key', exportKeyHandler);
   bot.action('confirm_export', confirmExportHandler);
   bot.action('import_wallet', importWalletHandler);
-  bot.action('create_wallet', async (ctx) => {
-    try {
-      await ctx.answerCbQuery('Creating a new wallet...');
-      // Generate new wallet
-      const user = await userService.generateNewWallet(ctx.from.id);
-      await ctx.reply(
-        `✅ New wallet created successfully!\n\nAddress: ${user.walletAddress}`
-      );
-    } catch (error) {
-      logger.error(`Create wallet error: ${error.message}`);
-      await ctx.reply('Failed to create new wallet. Please try again later.');
-    }
-  });
-  
-  // Trading preferences
-  bot.action('toggle_auto_slippage', toggleAutoSlippageHandler);
-  bot.action('toggle_mev_protection', toggleMevProtectionHandler);
-  bot.action('toggle_confirm_trades', toggleConfirmTradesHandler);
-  bot.action(/slippage_(increase|decrease)/, updateSlippageHandler);
+  bot.action('create_wallet', createWalletHandler);
   
   // Back buttons
   bot.action('back_to_settings', settingsHandler);
-  bot.hears('⬅️ Back to Main Menu', async (ctx) => {
+  
+  // Add the text handler for settings that require text input
+  bot.on('text', async (ctx, next) => {
     try {
-      // Import startHandler to avoid circular dependencies
-      const { startHandler } = require('./startHandler');
-      return await startHandler(ctx);
+      const user = await userService.getUserByTelegramId(ctx.from.id);
+      
+      if (!user || !user.state) {
+        return next();
+      }
+      
+      // Handle text input based on user state
+      if (user.state === 'IMPORTING_WALLET') {
+        // This will be handled by the walletHandler
+        return next();
+      } else if (user.state === 'CUSTOM_FEE_INPUT') {
+        // Handle custom fee input
+        const feeInput = parseFloat(ctx.message.text.trim());
+        
+        if (isNaN(feeInput) || feeInput < 0 || feeInput > 0.1) {
+          await ctx.reply('Invalid fee value. Please enter a number between 0 and 0.1');
+          return;
+        }
+        
+        // Update the custom fee value
+        await userService.updateUserSettings(ctx.from.id, {
+          'settings.tradingSettings.feeType': 'CUSTOM',
+          'settings.tradingSettings.customFeeValue': feeInput,
+          state: null
+        });
+        
+        await ctx.reply(`✅ Custom fee set to ${feeInput}`);
+        return txSettingsHandler(ctx);
+      }
+      
+      return next();
     } catch (error) {
-      logger.error(`Back to main menu error: ${error.message}`);
-      return ctx.reply('Returning to main menu...');
+      logger.error(`Settings text input error: ${error.message}`);
+      return next();
     }
   });
-  
-  // Register text input handler for private keys
-  textInputHandler(bot);
 };
 
 module.exports = {
   settingsHandler,
-  registerSettingsHandlers
+  registerSettingsHandlers,
+  txSettingsHandler,
+  feeTypeHandler,
+  walletManagementHandler,
+  importWalletHandler,
+  exportKeyHandler,
+  confirmExportHandler,
+  // New exports
+  setBuyTipHandler,
+  setSellTipHandler,
+  buySettingsHandler,
+  sellSettingsHandler,
+  mevProtectionHandler,
+  processTypeHandler,
+  tradingPresetsHandler,
+  confirmTradesHandler,
+  accountSecurityHandler,
+  afkModeHandler,
+  botClicksHandler,
+  createWalletHandler
 };

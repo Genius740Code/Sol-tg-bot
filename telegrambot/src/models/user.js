@@ -5,8 +5,8 @@ const { logger } = require('../database');
 
 // Fee configuration for easy changing
 const FEE_CONFIG = {
-  FAST: 0.01,  // 1%
-  TURBO: 0.03  // 3%
+  FAST: 0.001,  // 0.1%
+  TURBO: 0.005  // 0.5%
 };
 
 // Helper for compression
@@ -170,6 +170,31 @@ const userSchema = new mongoose.Schema({
         type: String,
         enum: Object.keys(FEE_CONFIG),
         default: 'FAST'
+      },
+      buyTip: {
+        type: Number,
+        default: 0.001
+      },
+      sellTip: {
+        type: Number,
+        default: 0.001
+      },
+      customFeeValue: {
+        type: Number,
+        default: 0.001
+      },
+      mevProtection: {
+        type: Boolean,
+        default: false
+      },
+      processType: {
+        type: String,
+        enum: ['standard', 'fast', 'turbo'],
+        default: 'standard'
+      },
+      confirmTrades: {
+        type: Boolean,
+        default: true
       }
     },
   },
