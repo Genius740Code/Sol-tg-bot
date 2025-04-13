@@ -1,7 +1,7 @@
 const { Markup } = require('telegraf');
 const userService = require('../services/userService');
 const { logger } = require('../database');
-const { generateWallet, importWalletFromPrivateKey } = require('../../utils/wallet');
+const { generateWallet, importWalletFromPrivateKey, getSolBalance, getSolPrice } = require('../../utils/wallet');
 const { encrypt, decrypt } = require('../../utils/encryption');
 
 // Wallet management handler
@@ -16,6 +16,38 @@ const walletManagementHandler = async (ctx) => {
     
     const wallets = user.wallets || [];
     const activeWallet = user.getActiveWallet();
+    
+    // Fetch SOL balances and prices
+    const solPrice = await getSolPrice();
+    
+    // Get balances for all wallets
+    const walletsWithBalances = await Promise.all(wallets.map(async (wallet) => {
+      const balance = await getSolBalance(wallet.address);
+      const valueUsd = balance * solPrice;
+      return {
+        ...wallet.toObject(),
+        balance,
+        valueUsd
+      };
+    }));
+    
+    // Create wallet display message
+    let message = `💳 *Wallet Settings*\n\n`;
+    message += `📚 Need more help? [Click Here!](https://docs.tradeonnova.io/configuration/wallets)\n\n`;
+    message += `🌐 Create, manage and import wallets here.\n\n`;
+    message += `💳 *Your Solana Wallets:*\n\n`;
+    
+    // List all wallets with balances
+    walletsWithBalances.forEach(wallet => {
+      // Mark active wallet as default
+      const isDefault = wallet.isActive ? ' (Default)' : '';
+      const balanceText = `${wallet.balance.toFixed(5)} SOL ($${wallet.valueUsd.toFixed(2)} USD)`;
+      
+      message += `• ${wallet.name}${isDefault} - ${balanceText}\n`;
+      message += `${wallet.address}\n\n`;
+    });
+    
+    message += `🔒 Tip: Keep your Nova wallets secure by setting a Security Pin below.`;
     
     // Create wallet selection buttons
     let walletButtons = [];
@@ -45,31 +77,28 @@ const walletManagementHandler = async (ctx) => {
     
     // Main wallet management buttons
     const managementButtons = [
-      [Markup.button.callback('🔑 Export Private Key', 'export_key')],
-      [Markup.button.callback('📥 Import Wallet', 'import_wallet')],
-      [Markup.button.callback('🆕 Create New Wallet', 'create_new_wallet')],
-      [Markup.button.callback('✏️ Rename Wallet', 'rename_wallet')],
-      [Markup.button.callback('🔄 Change Wallet Address', 'change_wallet')]
+      [
+        Markup.button.callback('🗑️ Delete Wallet', 'delete_wallet'),
+        Markup.button.callback('📤 Withdraw', 'withdraw_sol')
+      ],
+      [
+        Markup.button.callback('🔐 Security Pin', 'set_security_pin'),
+        Markup.button.callback('⚙️ Settings', 'wallet_settings')
+      ],
+      [Markup.button.callback('🔙 Back to Menu', 'refresh_data')]
     ];
     
     // Combine all buttons
     const allButtons = [
       ...walletButtons,
-      ...managementButtons,
-      [Markup.button.callback('🔙 Back to Menu', 'refresh_data')]
+      ...managementButtons
     ];
     
-    await ctx.reply(
-      '👛 *Wallet Management*\n\n' +
-      `Current Wallet: *${activeWallet.name}*\n` +
-      `Address: \`${activeWallet.address}\`\n\n` +
-      `You have ${wallets.length} wallet${wallets.length !== 1 ? 's' : ''}.\n\n` +
-      'Choose an action:',
-      {
-        parse_mode: 'Markdown',
-        ...Markup.inlineKeyboard(allButtons)
-      }
-    );
+    await ctx.reply(message, {
+      parse_mode: 'Markdown',
+      disable_web_page_preview: true,
+      ...Markup.inlineKeyboard(allButtons)
+    });
   } catch (error) {
     logger.error(`Wallet management error: ${error.message}`);
     return ctx.reply('Sorry, there was an error accessing wallet management. Please try again later.');
@@ -520,12 +549,42 @@ const handleWalletTextInput = async (ctx) => {
         );
       }
       
-      // Find the wallet
-      const wallet = user.wallets.find(w => w.address === walletAddress);
-      
-      if (!wallet) {
+      // Validate the new name (4-15 alphanumeric characters, no spaces)
+      if (!newName.match(/^[a-zA-Z0-9]{4,15}$/)) {
         return ctx.reply(
-          '❌ Error: Wallet not found.',
+          '❌ Invalid wallet name format.\n\n' +
+          'Wallet names must be 4-15 alphanumeric characters (no spaces or special characters).\n' +
+          'Please try again:',
+          {
+            ...Markup.inlineKeyboard([
+              [Markup.button.callback('🔙 Cancel Renaming', 'wallet_management')]
+            ])
+          }
+        );
+      }
+      
+      try {
+        // Update the wallet name
+        const updatedUser = await userService.updateWalletName(ctx.from.id, walletAddress, newName);
+        
+        if (!updatedUser) {
+          throw new Error('Failed to update wallet name');
+        }
+        
+        return ctx.reply(
+          '✅ *Wallet Renamed Successfully!*\n\n' +
+          `Your wallet has been renamed to: *${newName}*`,
+          {
+            parse_mode: 'Markdown',
+            ...Markup.inlineKeyboard([
+              [Markup.button.callback('🔙 Back to Wallet Management', 'wallet_management')]
+            ])
+          }
+        );
+      } catch (error) {
+        logger.error(`Error updating wallet name: ${error.message}`);
+        return ctx.reply(
+          '❌ Error updating wallet name. Please try again later.',
           {
             ...Markup.inlineKeyboard([
               [Markup.button.callback('🔙 Back to Wallet Management', 'wallet_management')]
@@ -533,22 +592,6 @@ const handleWalletTextInput = async (ctx) => {
           }
         );
       }
-      
-      // Update wallet name
-      wallet.name = newName;
-      await user.save();
-      
-      return ctx.reply(
-        '✅ *Wallet Renamed Successfully!*\n\n' +
-        `Wallet is now named: *${newName}*\n` +
-        `Address: \`${wallet.address}\``,
-        {
-          parse_mode: 'Markdown',
-          ...Markup.inlineKeyboard([
-            [Markup.button.callback('🔙 Back to Wallet Management', 'wallet_management')]
-          ])
-        }
-      );
     }
   } catch (error) {
     logger.error(`Handle wallet text input error: ${error.message}`);
@@ -556,13 +599,76 @@ const handleWalletTextInput = async (ctx) => {
   }
 };
 
-// Switch wallet handler
-const switchWalletHandler = async (ctx) => {
+// Switch wallet selection handler
+const switchWalletSelectionHandler = async (ctx) => {
   try {
     await ctx.answerCbQuery();
     
-    // Extract wallet address from callback data
-    const walletAddress = ctx.match[1];
+    // Get user and their wallets
+    const user = await userService.getUserByTelegramId(ctx.from.id);
+    
+    if (!user) {
+      return ctx.reply('You need to start the bot first with /start');
+    }
+    
+    const wallets = user.wallets || [];
+    const activeWallet = user.getActiveWallet();
+    
+    if (wallets.length <= 1) {
+      return ctx.reply(
+        '❌ You only have one wallet. Create additional wallets first.',
+        {
+          ...Markup.inlineKeyboard([
+            [Markup.button.callback('🆕 Create New Wallet', 'create_new_wallet')],
+            [Markup.button.callback('🔙 Back to Wallet Management', 'wallet_management')]
+          ])
+        }
+      );
+    }
+    
+    // Create buttons for each wallet
+    const walletButtons = wallets.map(wallet => {
+      // Don't show the active wallet in the list
+      if (wallet.address === activeWallet.address) {
+        return null;
+      }
+      
+      return [Markup.button.callback(
+        `${wallet.name} - ${wallet.address.substring(0, 6)}...${wallet.address.substring(wallet.address.length - 4)}`,
+        `switch_to_wallet_${wallet._id}`
+      )];
+    }).filter(button => button !== null);
+    
+    // Add back button
+    walletButtons.push([Markup.button.callback('🔙 Back to Wallet Management', 'wallet_management')]);
+    
+    await ctx.reply(
+      '↔️ *Switch Wallet*\n\n' +
+      `Current wallet: *${activeWallet.name}*\n` +
+      `Address: \`${activeWallet.address}\`\n\n` +
+      'Select a wallet to switch to:',
+      {
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard(walletButtons)
+      }
+    );
+  } catch (error) {
+    logger.error(`Switch wallet selection error: ${error.message}`);
+    return ctx.reply('Sorry, there was an error. Please try again later.');
+  }
+};
+
+// Switch to selected wallet handler
+const switchToWalletHandler = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    
+    // Extract wallet ID from callback data
+    const walletId = ctx.match[0].split('_').slice(3).join('_');
+    
+    if (!walletId) {
+      return ctx.reply('Invalid wallet selection');
+    }
     
     // Get user
     const user = await userService.getUserByTelegramId(ctx.from.id);
@@ -571,16 +677,28 @@ const switchWalletHandler = async (ctx) => {
       return ctx.reply('You need to start the bot first with /start');
     }
     
-    // Set the wallet as active
-    await userService.setActiveWallet(ctx.from.id, walletAddress);
+    // Find the selected wallet by ID
+    const selectedWallet = user.wallets.id(walletId);
     
-    // Find the wallet to get its name
-    const wallet = user.wallets.find(w => w.address === walletAddress);
+    if (!selectedWallet) {
+      return ctx.reply('Wallet not found');
+    }
     
-    // Confirm the switch
+    // Set all wallets to inactive
+    user.wallets.forEach(wallet => {
+      wallet.isActive = false;
+    });
+    
+    // Set selected wallet to active
+    selectedWallet.isActive = true;
+    
+    // Save changes
+    await user.save();
+    
     await ctx.reply(
-      `✅ Switched to wallet: *${wallet.name}*\n\n` +
-      `Address: \`${wallet.address}\``,
+      '✅ *Wallet Switched Successfully*\n\n' +
+      `Now using wallet: *${selectedWallet.name}*\n` +
+      `Address: \`${selectedWallet.address}\``,
       {
         parse_mode: 'Markdown',
         ...Markup.inlineKeyboard([
@@ -589,8 +707,8 @@ const switchWalletHandler = async (ctx) => {
       }
     );
   } catch (error) {
-    logger.error(`Switch wallet error: ${error.message}`);
-    return ctx.reply('Sorry, something went wrong. Please try again later.');
+    logger.error(`Switch to wallet error: ${error.message}`);
+    return ctx.reply('Sorry, there was an error switching wallets. Please try again later.');
   }
 };
 
@@ -664,7 +782,7 @@ const prepareWalletRenameHandler = async (ctx) => {
     
     if (!wallet) {
       return ctx.reply(
-        '❌ Wallet not found.',
+        '❌ Wallet not found. Please try selecting a wallet again.',
         {
           ...Markup.inlineKeyboard([
             [Markup.button.callback('🔙 Back to Wallet Management', 'wallet_management')]
@@ -672,6 +790,8 @@ const prepareWalletRenameHandler = async (ctx) => {
         }
       );
     }
+    
+    logger.info(`Found wallet to rename: ${wallet.name} (${wallet.address})`);
     
     // Update user state for renaming
     await userService.updateUserSettings(ctx.from.id, { 
@@ -683,7 +803,7 @@ const prepareWalletRenameHandler = async (ctx) => {
       `✏️ *Rename Wallet*\n\n` +
       `Current name: *${wallet.name}*\n` +
       `Address: \`${wallet.address}\`\n\n` +
-      `Please enter a new name for this wallet:`,
+      `Please enter a new name for this wallet (4-15 alphanumeric characters, no spaces or special characters):`,
       {
         parse_mode: 'Markdown',
         ...Markup.inlineKeyboard([
@@ -694,6 +814,184 @@ const prepareWalletRenameHandler = async (ctx) => {
   } catch (error) {
     logger.error(`Prepare wallet rename error: ${error.message}`);
     return ctx.reply('Sorry, something went wrong. Please try again later.');
+  }
+};
+
+// Delete wallet handler
+const deleteWalletHandler = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    
+    // Get user
+    const user = await userService.getUserByTelegramId(ctx.from.id);
+    
+    if (!user) {
+      return ctx.reply('You need to start the bot first with /start');
+    }
+    
+    const wallets = user.wallets || [];
+    
+    // Can't delete if only one wallet
+    if (wallets.length <= 1) {
+      return ctx.reply(
+        '❌ You cannot delete your only wallet.\n\n' +
+        'Create additional wallets first before deleting this one.',
+        {
+          ...Markup.inlineKeyboard([
+            [Markup.button.callback('🔙 Back to Wallet Management', 'wallet_management')]
+          ])
+        }
+      );
+    }
+    
+    // Create buttons for each wallet
+    const walletButtons = wallets.map(wallet => {
+      return [Markup.button.callback(
+        `${wallet.name} - ${wallet.address.substring(0, 6)}...${wallet.address.substring(wallet.address.length - 4)}`,
+        `confirm_delete_wallet_${wallet._id}`
+      )];
+    });
+    
+    // Add back button
+    walletButtons.push([Markup.button.callback('🔙 Back to Wallet Management', 'wallet_management')]);
+    
+    await ctx.reply(
+      '🗑️ *Delete Wallet*\n\n' +
+      '⚠️ WARNING: This action cannot be undone!\n\n' +
+      'Make sure you have exported or backed up your private key\n' +
+      'before deleting a wallet.\n\n' +
+      'Select a wallet to delete:',
+      {
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard(walletButtons)
+      }
+    );
+  } catch (error) {
+    logger.error(`Delete wallet error: ${error.message}`);
+    return ctx.reply('Sorry, there was an error. Please try again later.');
+  }
+};
+
+// Confirm delete wallet handler
+const confirmDeleteWalletHandler = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    
+    // Extract wallet ID from callback data
+    const walletId = ctx.match[0].split('_').slice(3).join('_');
+    
+    if (!walletId) {
+      return ctx.reply('Invalid wallet selection');
+    }
+    
+    // Get user
+    const user = await userService.getUserByTelegramId(ctx.from.id);
+    
+    if (!user) {
+      return ctx.reply('You need to start the bot first with /start');
+    }
+    
+    // Find the wallet by ID
+    const wallet = user.wallets.id(walletId);
+    
+    if (!wallet) {
+      return ctx.reply('Wallet not found');
+    }
+    
+    // Can't delete active wallet if it's the only one
+    if (wallet.isActive && user.wallets.length <= 1) {
+      return ctx.reply(
+        '❌ You cannot delete your only active wallet.\n\n' +
+        'Create and activate another wallet first.',
+        {
+          ...Markup.inlineKeyboard([
+            [Markup.button.callback('🔙 Back to Wallet Management', 'wallet_management')]
+          ])
+        }
+      );
+    }
+    
+    // If deleting active wallet, activate another one
+    if (wallet.isActive) {
+      // Find another wallet to set as active
+      const otherWallet = user.wallets.find(w => w._id.toString() !== walletId);
+      if (otherWallet) {
+        otherWallet.isActive = true;
+      }
+    }
+    
+    // Remove the wallet
+    user.wallets.pull(walletId);
+    
+    // Save changes
+    await user.save();
+    
+    await ctx.reply(
+      '✅ *Wallet Deleted Successfully*\n\n' +
+      `The wallet "${wallet.name}" has been deleted.`,
+      {
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback('🔙 Back to Wallet Management', 'wallet_management')]
+        ])
+      }
+    );
+  } catch (error) {
+    logger.error(`Confirm delete wallet error: ${error.message}`);
+    return ctx.reply('Sorry, there was an error deleting the wallet. Please try again later.');
+  }
+};
+
+// Withdraw SOL handler
+const withdrawSolHandler = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    
+    await ctx.reply(
+      '📤 *Withdraw SOL*\n\n' +
+      'Please enter the destination wallet address and amount in SOL\n' +
+      'in the following format:\n\n' +
+      '`address amount`\n\n' +
+      'Example: `7VH2NuKuwdfpgFt7uyWSUgkQT4KnXhVMJaXd2YTsLcH 0.5`',
+      {
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback('🔙 Cancel', 'wallet_management')]
+        ])
+      }
+    );
+    
+    // Set user state for handling input
+    await userService.updateUserSettings(ctx.from.id, { state: 'WITHDRAWING_SOL' });
+  } catch (error) {
+    logger.error(`Withdraw SOL error: ${error.message}`);
+    return ctx.reply('Sorry, there was an error. Please try again later.');
+  }
+};
+
+// Security PIN handler
+const securityPinHandler = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    
+    await ctx.reply(
+      '🔐 *Security PIN*\n\n' +
+      'Setting a security PIN adds an extra layer of protection\n' +
+      'for your wallet operations.\n\n' +
+      'Please enter a 4-6 digit PIN code:',
+      {
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback('🔙 Cancel', 'wallet_management')]
+        ])
+      }
+    );
+    
+    // Set user state for handling input
+    await userService.updateUserSettings(ctx.from.id, { state: 'SETTING_SECURITY_PIN' });
+  } catch (error) {
+    logger.error(`Security PIN error: ${error.message}`);
+    return ctx.reply('Sorry, there was an error. Please try again later.');
   }
 };
 
@@ -716,12 +1014,42 @@ const registerWalletHandlers = (bot) => {
   // Change wallet address
   bot.action('change_wallet', changeWalletAddressHandler);
   
-  // Switch wallet
-  bot.action(/switch_wallet_([1-9A-HJ-NP-Za-km-z]{32,44})/, switchWalletHandler);
+  // Wallet switching
+  bot.action('switch_wallet', switchWalletSelectionHandler);
+  bot.action(/switch_to_wallet_.*/, switchToWalletHandler);
   
   // Rename wallet
   bot.action('rename_wallet', renameWalletHandler);
   bot.action(/rename_wallet_([1-9A-HJ-NP-Za-km-z]{32,44})/, prepareWalletRenameHandler);
+  
+  // Delete wallet
+  bot.action('delete_wallet', deleteWalletHandler);
+  bot.action(/confirm_delete_wallet_.*/, confirmDeleteWalletHandler);
+  
+  // Withdraw SOL
+  bot.action('withdraw_sol', withdrawSolHandler);
+  
+  // Security PIN
+  bot.action('set_security_pin', securityPinHandler);
+  
+  // Wallet settings
+  bot.action('wallet_settings', async (ctx) => {
+    await ctx.answerCbQuery();
+    return ctx.reply(
+      '⚙️ *Wallet Settings*\n\n' +
+      'Advanced wallet management options:',
+      {
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback('🔑 Export Private Key', 'export_key')],
+          [Markup.button.callback('📥 Import Wallet', 'import_wallet')],
+          [Markup.button.callback('🆕 Create New Wallet', 'create_new_wallet')],
+          [Markup.button.callback('✏️ Rename Wallet', 'rename_wallet')],
+          [Markup.button.callback('🔙 Back to Wallet Management', 'wallet_management')]
+        ])
+      }
+    );
+  });
   
   // Handle wallet state text input
   bot.on('text', async (ctx, next) => {

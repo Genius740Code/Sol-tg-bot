@@ -17,6 +17,7 @@ const fs = require('fs');
 const path = require('path');
 const { User, FEE_CONFIG } = require('./models/user');
 const userService = require('./services/userService');
+const mongoose = require('mongoose');
 
 // Create logs directory if it doesn't exist
 const logsDir = path.join(__dirname, '..', 'logs');
@@ -81,7 +82,8 @@ bot.telegram.setMyCommands([
   { command: COMMANDS.SETTINGS, description: 'Configure bot settings' },
   { command: COMMANDS.POSITIONS, description: 'View your trading positions' },
   { command: COMMANDS.ORDERS, description: 'View your limit orders' },
-  { command: COMMANDS.REFERRALS, description: 'View and manage referrals' }
+  { command: COMMANDS.REFERRALS, description: 'View and manage referrals' },
+  { command: COMMANDS.WALLETS, description: 'Manage your wallets' }
 ]);
 
 // Register all handlers
@@ -128,7 +130,8 @@ bot.command(COMMANDS.HELP, async (ctx) => {
     '/settings - Configure bot settings\n' +
     '/positions - View your trading positions\n' +
     '/orders - View your limit orders\n' +
-    '/referrals - View and manage referrals\n\n' +
+    '/referrals - View and manage referrals\n' +
+    '/wallets - Manage your wallets\n\n' +
     '*Features:*\n' +
     `${feeText}\n` +
     '• Create limit orders for precise trading\n' +
@@ -154,6 +157,12 @@ bot.command(COMMANDS.ORDERS, limitOrdersHandler);
 
 // Referrals command
 bot.command(COMMANDS.REFERRALS, referralHandler);
+
+// Wallets command
+bot.command(COMMANDS.WALLETS, async (ctx) => {
+  const { walletManagementHandler } = require('./handlers/walletHandler');
+  return walletManagementHandler(ctx);
+});
 
 // Refresh button handler
 bot.action(ACTIONS.REFRESH, refreshHandler);
@@ -280,6 +289,88 @@ schedule.scheduleJob('*/1 * * * *', async () => {
   }
 });
 
+// Schedule periodic memory cleanup
+const memoryCleanupJob = schedule.scheduleJob('*/30 * * * *', async () => {
+  try {
+    logger.info('Running scheduled memory cleanup');
+    
+    // Force garbage collection if available (Node must be started with --expose-gc)
+    if (global.gc) {
+      global.gc();
+      logger.info('Forced garbage collection completed');
+    }
+    
+    // Check memory usage
+    const memoryUsage = process.memoryUsage();
+    logger.info(`Memory usage: RSS ${Math.round(memoryUsage.rss / 1024 / 1024)} MB, Heap ${Math.round(memoryUsage.heapUsed / 1024 / 1024)}/${Math.round(memoryUsage.heapTotal / 1024 / 1024)} MB`);
+  } catch (error) {
+    logger.error(`Error during memory cleanup: ${error.message}`);
+  }
+});
+
+// Handle graceful shutdown
+const gracefulShutdown = async (signal) => {
+  logger.info(`${signal} received. Stopping bot...`);
+  
+  // Stop all scheduled jobs
+  schedule.gracefulShutdown()
+    .then(() => logger.info('Scheduled jobs stopped'))
+    .catch(err => logger.error(`Error stopping scheduled jobs: ${err.message}`))
+    .finally(() => {
+      // Close database connection
+      mongoose.connection.close()
+        .then(() => logger.info('Database connection closed'))
+        .catch(err => logger.error(`Error closing database connection: ${err.message}`))
+        .finally(() => {
+          // Stop bot
+          bot.stop();
+          logger.info('Bot started successfully');
+          process.exit(0);
+        });
+    });
+};
+
+// Handle termination signals
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+
+// Add direct AFK mode handler to the main file
+bot.action('afk_mode', async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    
+    // Toggle AFK mode for the user
+    const user = await userService.getUserByTelegramId(ctx.from.id);
+    
+    if (!user) {
+      return ctx.reply('You need to start the bot first with /start');
+    }
+    
+    // Toggle AFK mode
+    const currentAfkMode = user.settings?.afkMode || false;
+    const newAfkMode = !currentAfkMode;
+    
+    // Update user settings
+    await userService.updateUserSettings(ctx.from.id, {
+      'settings.afkMode': newAfkMode
+    });
+    
+    // Show confirmation and return to main menu
+    await ctx.reply(
+      `✅ AFK Mode ${newAfkMode ? 'Enabled' : 'Disabled'}\n\n` +
+      `${newAfkMode ? 
+        'Bot will now automatically process trades without confirmation.' : 
+        'Bot will now ask for confirmation before executing trades.'}`
+    );
+    
+    // Return to main menu
+    return refreshHandler(ctx);
+  } catch (error) {
+    logger.error(`AFK mode error: ${error.message}`);
+    return ctx.reply('Sorry, there was an error changing AFK mode. Please try again later.');
+  }
+});
+
 // Start the bot
 bot.launch()
   .then(() => {
@@ -289,14 +380,3 @@ bot.launch()
     logger.error(`Failed to start bot: ${error.message}`);
     process.exit(1);
   });
-
-// Enable graceful stop
-process.once('SIGINT', () => {
-  logger.info('SIGINT received. Stopping bot...');
-  bot.stop('SIGINT');
-});
-
-process.once('SIGTERM', () => {
-  logger.info('SIGTERM received. Stopping bot...');
-  bot.stop('SIGTERM');
-});

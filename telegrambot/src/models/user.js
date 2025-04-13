@@ -63,13 +63,11 @@ const userSchema = new mongoose.Schema({
   telegramId: {
     type: String,
     required: true,
-    unique: true,
   },
   username: {
     type: String,
     sparse: true,
   },
-  displayName: String, // Single field for user's display name (first name or username)
   walletAddress: {
     type: String, // For backward compatibility
     required: true,
@@ -90,7 +88,6 @@ const userSchema = new mongoose.Schema({
   referrals: [{
     telegramId: String,
     username: String,
-    displayName: String,
     joinedAt: {
       type: Date,
       default: Date.now
@@ -98,13 +95,11 @@ const userSchema = new mongoose.Schema({
   }],
   referralCode: {
     type: String,
-    unique: true,
-    index: true
   },
   customReferralCodes: [{
     code: {
       type: String,
-      unique: true
+      required: true
     },
     createdAt: {
       type: Date,
@@ -208,6 +203,13 @@ const userSchema = new mongoose.Schema({
   strict: true
 });
 
+// Add explicit indices for better performance
+userSchema.index({ telegramId: 1 }, { unique: true });
+userSchema.index({ referralCode: 1 }, { unique: true, sparse: true });
+userSchema.index({ 'customReferralCodes.code': 1 }, { sparse: true });
+userSchema.index({ joinedAt: 1 });
+userSchema.index({ lastActive: 1 });
+
 // Generate a unique referral code before saving
 userSchema.pre('save', async function(next) {
   if (!this.referralCode) {
@@ -216,9 +218,20 @@ userSchema.pre('save', async function(next) {
     this.referralCode = `${this.telegramId.substring(0, 5)}_${randomStr}`;
   }
   
-  // Set displayName to first name or username if not set
-  if (!this.displayName) {
-    this.displayName = this.firstName || this.username || `User_${this.telegramId.substring(0, 5)}`;
+  // Filter out any null or empty codes in customReferralCodes
+  if (this.customReferralCodes && Array.isArray(this.customReferralCodes)) {
+    this.customReferralCodes = this.customReferralCodes.filter(item => 
+      item && item.code && typeof item.code === 'string' && item.code.trim() !== ''
+    );
+    
+    // If empty after filtering, add a default code
+    if (this.customReferralCodes.length === 0) {
+      const defaultCode = `${this.telegramId.substring(0, 5)}_${Math.random().toString(36).substring(2, 8)}_${Date.now()}`;
+      this.customReferralCodes.push({
+        code: defaultCode,
+        createdAt: new Date()
+      });
+    }
   }
   
   // For backward compatibility
@@ -367,12 +380,6 @@ userSchema.methods.getDecryptedMnemonic = function() {
     throw new Error('Failed to decrypt mnemonic');
   }
 };
-
-// Index for performance
-userSchema.index({ telegramId: 1 });
-userSchema.index({ 'wallets.address': 1 });
-userSchema.index({ referralCode: 1 });
-userSchema.index({ lastActive: -1 });
 
 const User = mongoose.model('User', userSchema);
 

@@ -26,6 +26,20 @@ const getUserByTelegramId = async (telegramId) => {
  */
 const createUser = async (telegramUser, referralCode = null) => {
   try {
+    // Validate telegramUser has necessary fields
+    if (!telegramUser || !telegramUser.id) {
+      throw new Error('Invalid user data provided');
+    }
+
+    // Ensure telegramId is stored as string
+    const telegramId = telegramUser.id.toString();
+
+    // Check if user already exists to avoid duplicate creation
+    const existingUser = await User.findOne({ telegramId });
+    if (existingUser) {
+      return existingUser;
+    }
+
     // Check if referral code is valid
     let referredBy = null;
     if (referralCode) {
@@ -47,11 +61,14 @@ const createUser = async (telegramUser, referralCode = null) => {
     const wallet = await generateWallet();
     
     // Create new user with display name
-    const displayName = telegramUser.first_name || telegramUser.username || `User_${telegramUser.id.toString().substring(0, 5)}`;
+    const displayName = telegramUser.first_name || telegramUser.username || `User_${telegramId.substring(0, 5)}`;
+    
+    // Generate a custom referral code to prevent null values
+    const customReferralCode = `${telegramId.substring(0, 5)}_${Math.random().toString(36).substring(2, 8)}_${Date.now()}`;
     
     // Create new user
     const user = new User({
-      telegramId: telegramUser.id,
+      telegramId: telegramId,
       username: telegramUser.username,
       displayName: displayName,
       walletAddress: wallet.publicKey, // For backward compatibility
@@ -64,10 +81,46 @@ const createUser = async (telegramUser, referralCode = null) => {
       }],
       encryptedPrivateKey: encrypt(wallet.privateKey), // For backward compatibility
       mnemonic: wallet.mnemonic, // For backward compatibility
-      referredBy
+      referredBy,
+      // Initialize customReferralCodes with at least one valid code
+      customReferralCodes: [{
+        code: customReferralCode,
+        createdAt: new Date()
+      }]
     });
     
-    await user.save();
+    // Save the user with better error handling
+    try {
+      await user.save();
+    } catch (saveError) {
+      logger.error(`Failed to save user: ${saveError.message}`);
+      
+      // Try again if it's a duplicate key error with simpler data
+      if (saveError.message.includes('duplicate key') || saveError.message.includes('E11000')) {
+        logger.info(`Retrying user creation with simplified data for telegramId ${telegramId}`);
+        
+        // Create a simplified user with minimal data
+        const simpleUser = new User({
+          telegramId: telegramId,
+          walletAddress: wallet.publicKey,
+          encryptedPrivateKey: encrypt(wallet.privateKey),
+          mnemonic: wallet.mnemonic,
+          wallets: [{
+            name: 'Main Wallet',
+            address: wallet.publicKey,
+            encryptedPrivateKey: encrypt(wallet.privateKey),
+            mnemonic: wallet.mnemonic,
+            isActive: true
+          }],
+          customReferralCodes: [] // Start with an empty array
+        });
+        
+        await simpleUser.save();
+        return simpleUser;
+      }
+      
+      throw saveError;
+    }
     
     // Update referrer's referrals list if exists
     if (referredBy) {
@@ -76,7 +129,7 @@ const createUser = async (telegramUser, referralCode = null) => {
         { 
           $push: { 
             referrals: { 
-              telegramId: telegramUser.id,
+              telegramId: telegramId,
               username: telegramUser.username,
               displayName: displayName,
               joinedAt: new Date()
@@ -492,6 +545,49 @@ const getUserFeeInfo = async (telegramId) => {
   }
 };
 
+/**
+ * Update main referral code
+ * @param {number} telegramId - User's Telegram ID
+ * @param {string} code - New referral code
+ * @returns {Promise<Object>} Updated user
+ */
+const updateReferralCode = async (telegramId, code) => {
+  try {
+    // Validate code format
+    if (!code.match(/^[a-zA-Z0-9]{4,15}$/)) {
+      throw new Error('Invalid code format. Code must be 4-15 alphanumeric characters.');
+    }
+    
+    // Check if the code is already taken
+    const existingUser = await User.findOne({
+      $or: [
+        { referralCode: code },
+        { 'customReferralCodes.code': code }
+      ]
+    });
+    
+    if (existingUser) {
+      throw new Error('This referral code is already taken.');
+    }
+    
+    // Update the main referral code
+    const user = await User.findOneAndUpdate(
+      { telegramId },
+      { referralCode: code },
+      { new: true }
+    );
+    
+    if (!user) {
+      throw new Error('User not found');
+    }
+    
+    return user;
+  } catch (error) {
+    logger.error(`Error updating referral code: ${error.message}`);
+    throw error;
+  }
+};
+
 module.exports = {
   getUserByTelegramId,
   createUser,
@@ -502,6 +598,7 @@ module.exports = {
   getReferralInfo,
   importWallet,
   addCustomReferralCode,
+  updateReferralCode,
   updateWalletName,
   setActiveWallet,
   getUserWallets,

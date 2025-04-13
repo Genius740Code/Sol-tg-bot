@@ -124,32 +124,156 @@ const isRateLimited = (userId) => {
   return false;
 };
 
-/**
- * Get SOL price from API
- * @returns {Promise<number>} - Current SOL price in USD
- */
-const getSolPrice = async () => {
-  try {
-    const response = await axios.get('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd', {
-      timeout: API.TIMEOUT_MS
-    });
-    return response.data.solana.usd;
-  } catch (error) {
-    logger.error(`Error fetching SOL price: ${error.message}`);
-    return WALLET.DEFAULT_SOL_PRICE; // Return default price on error
+// Cache for price data to reduce API calls
+const priceCache = {
+  sol: {
+    price: null,
+    lastUpdated: 0
+  },
+  tokens: new Map() // tokenAddress -> {price, lastUpdated}
+};
+
+// Cache TTL in milliseconds - Optimized values
+const CACHE_TTL = 2 * 60 * 1000; // 2 minutes for normal cache (was 1 minute)
+const LONG_CACHE_TTL = 15 * 60 * 1000; // 15 minutes for fallback (was 5 minutes)
+const ULTRA_LONG_CACHE_TTL = 60 * 60 * 1000; // 1 hour for extreme fallback
+
+// Connection pool for Solana RPC
+const connectionPool = {
+  connections: [],
+  maxConnections: 5,
+  currentIndex: 0,
+  endpoints: [
+    'https://api.mainnet-beta.solana.com',
+    'https://solana-api.projectserum.com',
+    'https://rpc.ankr.com/solana',
+    'https://solana-mainnet.g.alchemy.com/v2/demo',
+    'https://solana.public-rpc.com'
+  ],
+  getConnection() {
+    if (this.connections.length < this.maxConnections) {
+      // Create new connection if pool not full
+      const endpoint = this.endpoints[this.connections.length % this.endpoints.length];
+      const connection = new Connection(endpoint, 'confirmed');
+      this.connections.push(connection);
+      return connection;
+    }
+    
+    // Round-robin through existing connections
+    const connection = this.connections[this.currentIndex];
+    this.currentIndex = (this.currentIndex + 1) % this.connections.length;
+    return connection;
   }
 };
 
 /**
- * Get SOL balance for a wallet
+ * Get SOL price with caching to handle rate limits - Optimized
+ * @returns {Promise<number>} SOL price in USD
+ */
+const getSolPrice = async () => {
+  // Check cache first
+  const now = Date.now();
+  if (priceCache.sol.price && now - priceCache.sol.lastUpdated < CACHE_TTL) {
+    return priceCache.sol.price;
+  }
+  
+  // Try multiple API endpoints in parallel for faster response
+  try {
+    const [coingeckoPromise, jupPromise] = [
+      axios.get('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd', { 
+        timeout: API.TIMEOUT_MS / 2 
+      }).catch(err => ({ error: err })),
+      axios.get('https://price.jup.ag/v4/price?ids=SOL', { 
+        timeout: API.TIMEOUT_MS / 2 
+      }).catch(err => ({ error: err }))
+    ];
+    
+    // Race for fastest response
+    const results = await Promise.allSettled([coingeckoPromise, jupPromise]);
+    
+    // Process CoinGecko result if successful
+    if (results[0].status === 'fulfilled' && !results[0].value.error) {
+      const response = results[0].value;
+      if (response.data && response.data.solana && response.data.solana.usd) {
+        const price = response.data.solana.usd;
+        priceCache.sol = { price, lastUpdated: now };
+        return price;
+      }
+    }
+    
+    // Process Jupiter result if successful
+    if (results[1].status === 'fulfilled' && !results[1].value.error) {
+      const response = results[1].value;
+      if (response.data && response.data.data && response.data.data.SOL) {
+        const price = response.data.data.SOL.price;
+        priceCache.sol = { price, lastUpdated: now };
+        return price;
+      }
+    }
+    
+    throw new Error('Failed to fetch price from primary sources');
+  } catch (error) {
+    logger.error(`Error fetching SOL price: ${error.message}`);
+    
+    // Tiered fallback strategy
+    // 1. First try normal cache if not too old
+    if (priceCache.sol.price && now - priceCache.sol.lastUpdated < LONG_CACHE_TTL) {
+      logger.info(`Using cached SOL price (normal fallback): $${priceCache.sol.price}`);
+      return priceCache.sol.price;
+    }
+    
+    // 2. Try third backup API
+    try {
+      const coinbaseResponse = await axios.get('https://api.coinbase.com/v2/prices/SOL-USD/spot', {
+        timeout: API.TIMEOUT_MS
+      });
+      if (coinbaseResponse.data && coinbaseResponse.data.data && coinbaseResponse.data.data.amount) {
+        const price = parseFloat(coinbaseResponse.data.data.amount);
+        priceCache.sol = { price, lastUpdated: now };
+        return price;
+      }
+    } catch (cbError) {
+      logger.error(`Error fetching SOL price from Coinbase: ${cbError.message}`);
+    }
+    
+    // 3. Use ultra-long cache if available
+    if (priceCache.sol.price && now - priceCache.sol.lastUpdated < ULTRA_LONG_CACHE_TTL) {
+      logger.info(`Using cached SOL price (extended fallback): $${priceCache.sol.price}`);
+      return priceCache.sol.price;
+    }
+    
+    // 4. Last resort, return default price
+    return priceCache.sol.price || WALLET.DEFAULT_SOL_PRICE;
+  }
+};
+
+/**
+ * Get SOL balance for a wallet - Optimized with connection pooling
  * @param {string} address - Wallet address
  * @returns {Promise<number>} - SOL balance
  */
 const getSolBalance = async (address) => {
+  // Get connection from pool
   try {
-    const connection = new Connection('https://api.mainnet-beta.solana.com', 'confirmed');
-    const balance = await connection.getBalance(new PublicKey(address));
-    return balance / LAMPORTS_PER_SOL;
+    // Validate address to prevent errors
+    if (!address || address === 'Wallet not available') {
+      return WALLET.DEFAULT_SOL_BALANCE;
+    }
+    
+    // Use connection pool to distribute load
+    const connection = connectionPool.getConnection();
+    
+    try {
+      const publicKey = new PublicKey(address);
+      const balance = await connection.getBalance(publicKey);
+      return balance / LAMPORTS_PER_SOL;
+    } catch (error) {
+      // Try one more time with a different connection if this one failed
+      logger.warn(`Error fetching balance with primary connection: ${error.message}, trying backup`);
+      const backupConnection = new Connection('https://api.mainnet-beta.solana.com', 'confirmed');
+      const balance = await backupConnection.getBalance(new PublicKey(address));
+      return balance / LAMPORTS_PER_SOL;
+    }
   } catch (error) {
     logger.error(`Error fetching SOL balance for ${address}: ${error.message}`);
     return WALLET.DEFAULT_SOL_BALANCE;
@@ -178,44 +302,57 @@ const getTokenInfo = async (tokenAddress) => {
   }
 };
 
-// Get token price from Helius (Price Oracle)
+/**
+ * Get token price with caching
+ * @param {string} tokenAddress - Token mint address
+ * @returns {Promise<Object>} Token price data
+ */
 const getTokenPrice = async (tokenAddress) => {
+  // Check cache first
+  const now = Date.now();
+  const cachedToken = priceCache.tokens.get(tokenAddress);
+  if (cachedToken && now - cachedToken.lastUpdated < CACHE_TTL) {
+    return cachedToken.data;
+  }
+  
   try {
-    const heliusApiKey = process.env.HELIUS_API_KEY;
-    if (!heliusApiKey) throw new Error('Helius API key not found');
+    // Try to get price from Jupiter aggregator
+    const response = await axios.get(`https://price.jup.ag/v4/price?ids=${tokenAddress}`);
     
-    // First get token metadata
-    const tokenInfo = await getTokenInfo(tokenAddress);
-    if (!tokenInfo) throw new Error('Token not found');
-    
-    // Use Helius token API to get additional info
-    try {
-      const heliusBalancesEndpoint = `https://api.helius.xyz/v0/addresses/${tokenAddress}/balances?api-key=${heliusApiKey}`;
-      const balancesResponse = await axios.get(heliusBalancesEndpoint);
-      
-      // Format response with token info plus available balance data
-      return {
-        price: tokenInfo.price?.value || 'Unknown',
-        marketCap: tokenInfo.marketCap || 'Unknown',
-        liquidity: 'See on Jupiter or Raydium',
-        volume24h: tokenInfo.volume24h || 'Unknown',
-        tokenInfo
+    if (response.data && response.data.data && response.data.data[tokenAddress]) {
+      const tokenData = {
+        price: response.data.data[tokenAddress].price,
+        marketCap: response.data.data[tokenAddress].market_cap || 0,
+        liquidity: response.data.data[tokenAddress].liquidity || 0,
+        tokenInfo: await getTokenInfo(tokenAddress)
       };
-    } catch (balanceError) {
-      logger.error('Error getting token balances:', balanceError);
       
-      // Return just the token info if balance check fails
-      return {
-        price: 'Unknown',
-        marketCap: 'Unknown',
-        liquidity: 'Unknown',
-        volume24h: 'Unknown',
-        tokenInfo
-      };
+      // Cache the result
+      priceCache.tokens.set(tokenAddress, {
+        data: tokenData,
+        lastUpdated: now
+      });
+      
+      return tokenData;
     }
+    
+    throw new Error('Token not found in price API');
   } catch (error) {
-    logger.error('Error getting token price:', error);
-    throw new Error('Failed to get token price information');
+    logger.error(`Error fetching token price for ${tokenAddress}: ${error.message}`);
+    
+    // If cache is not too old, use cached price as fallback
+    if (cachedToken && now - cachedToken.lastUpdated < LONG_CACHE_TTL) {
+      logger.info(`Using cached price for token ${tokenAddress} due to API error`);
+      return cachedToken.data;
+    }
+    
+    // Return default fallback
+    return {
+      price: 0,
+      marketCap: 0,
+      liquidity: 0,
+      tokenInfo: await getTokenInfo(tokenAddress)
+    };
   }
 };
 
@@ -227,7 +364,7 @@ const checkAndRepairUserWallet = async (user) => {
       // Create wallet array using walletAddress if available
       if (user.walletAddress) {
         user.wallets = [{
-          name: 'Main Wallet',
+          name: 'Wallet 1',
           address: user.walletAddress,
           encryptedPrivateKey: user.encryptedPrivateKey || encrypt('placeholder-key'),
           mnemonic: user.mnemonic || '',

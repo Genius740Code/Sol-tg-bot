@@ -87,26 +87,26 @@ const refreshHandler = async (ctx) => {
       `🏷️ You have a referral discount: ${FEES.REFERRAL_PERCENTAGE.toFixed(3)}% trading fee (${FEES.REFERRAL_DISCOUNT}% off)` : 
       `💡 Refer friends to get ${FEES.REFERRAL_DISCOUNT}% off trading fees (${FEES.NORMAL_PERCENTAGE}% → ${FEES.REFERRAL_PERCENTAGE.toFixed(3)}%)`;
     
-    // Build the main menu inline keyboard
-    const mainMenuInlineKeyboard = Markup.inlineKeyboard([
+    // Create menu keyboard
+    const menuKeyboard = Markup.inlineKeyboard([
       [
-        Markup.button.callback('💰 Buy', ACTIONS.BUY),
-        Markup.button.callback('💸 Sell', ACTIONS.SELL)
+        Markup.button.callback('🪙 Buy', 'buy_placeholder'),
+        Markup.button.callback('💰 Sell', 'sell_token')
       ],
       [
-        Markup.button.callback('📊 Positions', ACTIONS.POSITIONS),
-        Markup.button.callback('🔄 Referrals', ACTIONS.REFERRALS)
+        Markup.button.callback('💤 AFK Mode', 'afk_mode'),
+        Markup.button.callback('📊 Positions', 'view_positions')
       ],
       [
-        Markup.button.callback('📝 Limit Orders', ACTIONS.LIMIT_ORDERS),
-        Markup.button.callback('👥 Copy Trading', ACTIONS.COPY_TRADING)
+        Markup.button.callback('⏰ Orders', 'view_limit_orders'),
+        Markup.button.callback('👥 Referrals', 'view_referrals')
       ],
       [
-        Markup.button.callback('💳 Wallets', ACTIONS.WALLETS),
-        Markup.button.callback('⚙️ Settings', ACTIONS.SETTINGS)
+        Markup.button.callback('👛 Wallets', 'wallet_management'),
+        Markup.button.callback('⚙️ Settings', 'settings')
       ],
       [
-        Markup.button.callback('🔄 Refresh', ACTIONS.REFRESH)
+        Markup.button.callback('🔄 Refresh', 'refresh_data')
       ]
     ]);
 
@@ -114,13 +114,12 @@ const refreshHandler = async (ctx) => {
     const messageText = 
       `🤖 *Crypto Trading Bot* 🤖\n\n` +
       `👛 Wallet: \`${walletAddress}\`\n\n` +
-      `💎 SOL Balance: ${solBalance.toFixed(4)} SOL\n` +
-      `💵 Value: $${balanceUsd.toFixed(2)}\n` +
-      `📈 SOL Price: $${formatPrice(solPrice)}\n\n` +
+      `💎 SOL Balance: ${solBalance.toFixed(4)} SOL ($${balanceUsd.toFixed(2)})\n` +
+      `📈 SOL Price: $${solPrice.toFixed(2)}\n\n` +
       `${feeText}`;
 
     // Update or send message using utility function
-    return updateOrSendMessage(ctx, messageText, mainMenuInlineKeyboard);
+    return updateOrSendMessage(ctx, messageText, menuKeyboard);
     
   } catch (error) {
     logger.error(`Refresh handler error: ${error.message}`);

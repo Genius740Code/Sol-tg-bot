@@ -23,7 +23,7 @@ const WALLET = {
   DEFAULT_SOL_BALANCE: 0,          // Default SOL balance if can't be fetched
   DEFAULT_SOL_PRICE: 100,          // Default SOL price if can't be fetched
   MIN_BALANCE_THRESHOLD: 0.02,     // Minimum SOL needed for operations
-  GAS_FEE_SOL: 0.000005            // Standard gas fee in SOL
+  GAS_FEE_SOL: 0.0005            // Standard gas fee in SOL
 };
 
 // API service configuration
@@ -49,7 +49,8 @@ const COMMANDS = {
   SETTINGS: 'settings',
   POSITIONS: 'positions',
   ORDERS: 'orders',
-  REFERRALS: 'referrals'
+  REFERRALS: 'referrals',
+  WALLETS: 'wallets'
 };
 
 // Action command data

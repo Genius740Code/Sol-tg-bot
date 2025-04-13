@@ -3,6 +3,7 @@ const userService = require('../services/userService');
 const { logger } = require('../database');
 const { isRateLimited } = require('../../utils/wallet');
 const { encrypt, decrypt } = require('../../utils/encryption');
+const { walletSettingsHandler } = require('./wallet/walletSettingsHandler');
 
 // Fee constants
 const FEE_TYPES = {
@@ -42,8 +43,7 @@ const settingsHandler = async (ctx) => {
             Markup.button.callback('💸 Sell Settings', 'sell_settings')
           ],
           [
-            Markup.button.callback('🛡️ MEV Protection', 'mev_protection'),
-            Markup.button.callback('🔄 Process Type', 'process_type')
+            Markup.button.callback('🛡️ MEV Protection', 'mev_protection')
           ],
           [
             Markup.button.callback('⚡ Presets', 'trading_presets'),
@@ -616,19 +616,6 @@ const mevProtectionHandler = async (ctx) => {
   }
 };
 
-// Process type handler
-const processTypeHandler = async (ctx) => {
-  try {
-    await ctx.answerCbQuery('Process type selection coming soon');
-    
-    // Just return to main settings for now
-    return settingsHandler(ctx);
-  } catch (error) {
-    logger.error(`Process type error: ${error.message}`);
-    ctx.reply('Sorry, there was an error. Please try again later.');
-  }
-};
-
 // Trading presets handler
 const tradingPresetsHandler = async (ctx) => {
   try {
@@ -747,12 +734,11 @@ const registerSettingsHandlers = (bot) => {
   
   // MEV and process settings
   bot.action('mev_protection', mevProtectionHandler);
-  bot.action('process_type', processTypeHandler);
   
   // Other settings
   bot.action('trading_presets', tradingPresetsHandler);
   bot.action('confirm_trades', confirmTradesHandler);
-  bot.action('account_security', accountSecurityHandler);
+  bot.action('account_security', walletSettingsHandler);
   bot.action('afk_mode', afkModeHandler);
   bot.action('bot_clicks', botClicksHandler);
   
@@ -822,7 +808,6 @@ module.exports = {
   buySettingsHandler,
   sellSettingsHandler,
   mevProtectionHandler,
-  processTypeHandler,
   tradingPresetsHandler,
   confirmTradesHandler,
   accountSecurityHandler,

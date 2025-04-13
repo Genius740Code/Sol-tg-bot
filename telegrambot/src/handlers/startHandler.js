@@ -10,15 +10,15 @@ const { updateOrSendMessage, extractUserInfo, formatPrice } = require('../../uti
  */
 const startHandler = async (ctx) => {
   try {
-    // Extract user info from context
+    // Extract user information
     const userInfo = extractUserInfo(ctx);
     
     if (!userInfo || !userInfo.userId) {
-      logger.error("Invalid context format in startHandler");
-      return;
+      return ctx.reply('Error: Could not identify user. Please try again or contact support.');
     }
     
-    logger.info(`Received /start command from user: ${userInfo.userId}`);
+    // Lookup user in database
+    let user = await getUserByTelegramId(userInfo.userId);
     
     // Check rate limiting
     if (isRateLimited(userInfo.userId)) {
@@ -31,7 +31,13 @@ const startHandler = async (ctx) => {
     }
 
     // Extract referral code if any
-    const referralCode = userInfo.messageText.split(' ')[1]; // Format: /start referralCode
+    let referralCode = null;
+    if (userInfo.messageText && typeof userInfo.messageText === 'string') {
+      const parts = userInfo.messageText.split(' ');
+      if (parts.length > 1) {
+        referralCode = parts[1]; // Format: /start referralCode
+      }
+    }
     
     // Get user and SOL price in parallel
     const [existingUser, solPrice] = await Promise.all([
@@ -39,7 +45,6 @@ const startHandler = async (ctx) => {
       getSolPrice()
     ]);
     
-    let user;
     let isNewUser = false;
     
     if (!existingUser) {
@@ -51,8 +56,17 @@ const startHandler = async (ctx) => {
         username: userInfo.username
       };
       
-      user = await createUser(userData, referralCode);
-      isNewUser = true;
+      try {
+        user = await createUser(userData, referralCode);
+        isNewUser = true;
+      } catch (createError) {
+        logger.error(`Error creating user: ${createError.message}`);
+        // Handle the error gracefully
+        if (typeof ctx.reply === 'function') {
+          ctx.reply('❌ There was an error creating your account. Please try again later.');
+        }
+        return;
+      }
     } else {
       user = existingUser;
       

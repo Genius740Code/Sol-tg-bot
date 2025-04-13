@@ -66,6 +66,95 @@ For development with auto-reload:
 npm run dev
 ```
 
+## Database Management
+
+### Setting Up MongoDB
+
+For development and testing, you need a MongoDB database. You have two options:
+
+1. **Local MongoDB**: Install MongoDB locally and use `mongodb://localhost:27017/telegrambot`
+2. **MongoDB Atlas**: Use the free cloud-hosted MongoDB (recommended)
+
+If you don't have MongoDB set up, run the setup helper:
+
+```bash
+# Windows
+setup-test-db.bat
+
+# Unix/Linux/Mac
+node src/cli/setupDatabase.js --setup
+```
+
+This will guide you through setting up a free MongoDB Atlas database.
+
+### Seeding Test Data
+
+For development and testing, there are two ways to populate the database with test data:
+
+#### 1. Using the CLI Tools (Command Line Interface)
+
+```bash
+# Add test data without dropping existing collections
+npm run seed-db
+
+# Drop existing collections and recreate test data (CAUTION!)
+npm run seed-db:drop
+
+# Create a specific number of test users (e.g., 10)
+npm run seed-db:count 10
+# or with drop option
+node src/cli/seedDatabase.js --drop --count=10
+
+# Use a specific MongoDB connection string
+node src/cli/seedDatabase.js --uri=mongodb://username:password@hostname/database
+```
+
+Alternatively, you can use the Windows batch file:
+
+```bash
+# Add test data
+seed-db.bat
+
+# Drop existing collections and recreate test data
+seed-db.bat --drop
+
+# Create a specific number of test users
+seed-db.bat --count=10
+# or with drop option
+seed-db.bat --drop --count=10
+
+# Use a specific MongoDB connection string
+seed-db.bat --uri=mongodb://username:password@hostname/database
+```
+
+#### 2. Using the Interactive Database Population Tool
+
+For a more interactive experience, you can use the database population tool that will prompt you for the number of users to create:
+
+**Option 1: Using the wrapper script (easiest):**
+```bash
+# On Windows/Mac/Linux:
+node populate-db.js
+```
+
+**Option 2: Using the batch file (Windows only):**
+```bash
+# Double-click on populate-db.bat
+# Or run from command prompt:
+populate-db.bat
+```
+
+**Option 3: Running the script directly:**
+```bash
+# From the telegrambot directory:
+node tools/populateDatabase.js
+```
+
+The interactive tool will:
+1. Prompt you for the number of users to generate
+2. Create random users with wallets, referral codes, etc.
+3. Save them to your database
+
 ## Troubleshooting
 
 ### Database Connection Issues

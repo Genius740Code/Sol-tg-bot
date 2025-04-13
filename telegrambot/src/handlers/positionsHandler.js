@@ -1,3 +1,12 @@
+/**
+ * positionsHandler.js - This file handles displaying the overall positions list for the user.
+ * It provides a simple overview of all token holdings in the user's wallet.
+ * 
+ * NOTE: This file differs from positionHandler.js (singular) which provides more detailed
+ * position management features including selling percentages, setting alerts, stop losses, etc.
+ * The positionsHandler.js shows a simpler view for quicker access to basic position information.
+ */
+
 // Handle positions
 const positionsHandler = async (ctx) => {
   try {
@@ -13,13 +22,17 @@ const positionsHandler = async (ctx) => {
     // Get SOL balance
     const solBalance = await wallet.getSolBalance(walletAddress);
     
+    // Get SOL price for USD value calculation
+    const solPrice = await wallet.getSolPrice();
+    const balanceUsd = solBalance * solPrice;
+    
     // Fetch token positions from wallet using Helius API
     const tokens = await fetchTokenPositions(walletAddress);
     
     // Create message
     let message = `📊 *Your Positions*\n\n`;
     message += `💰 *Wallet:* \`${walletAddress}\`\n\n`;
-    message += `💎 *SOL Balance:* ${solBalance.toFixed(4)} SOL\n\n`;
+    message += `💎 *SOL Balance:* ${solBalance.toFixed(4)} SOL ($${balanceUsd.toFixed(2)})\n\n`;
     
     if (tokens.length > 0) {
       message += `🪙 *Token Positions:*\n\n`;
