@@ -1,6 +1,9 @@
-2025-04-13 13:25:13 INFO: Cleared log files on startup 
-2025-04-13 13:25:13 INFO: MongoDB connected successfully 
-2025-04-13 13:25:13 INFO: MongoDB Connected 
-2025-04-13 13:25:13 INFO: Connected to MongoDB 
-2025-04-13 13:25:13 INFO: Database connection established 
-2025-04-13 13:25:25 INFO: SIGINT received. Stopping bot... 
+2025-04-16 20:40:43 INFO: Cleared log files on startup 
+2025-04-16 20:40:44 INFO: MongoDB connected successfully 
+2025-04-16 20:40:44 INFO: MongoDB Connected 
+2025-04-16 20:40:44 INFO: Connected to MongoDB 
+2025-04-16 20:40:44 INFO: Database connection established 
+2025-04-16 20:40:58 WARN: RPC endpoint https://solana-api.projectserum.com failed: failed to get balance of account 6nYK1daspL8Kutom9xmm9RPRm1thbUtpQiEE87taNMJM: TypeError: fetch failed 
+2025-04-16 20:40:58 WARN: Error fetching balance with primary connection: failed to get balance of account 6nYK1daspL8Kutom9xmm9RPRm1thbUtpQiEE87taNMJM: TypeError: fetch failed, trying backup 
+2025-04-16 20:41:00 INFO: Scheduled price update: SOL = $129.75 
+2025-04-16 20:41:01 INFO: SIGINT received. Stopping bot... 

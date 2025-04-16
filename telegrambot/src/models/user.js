@@ -88,9 +88,18 @@ const userSchema = new mongoose.Schema({
   referrals: [{
     telegramId: String,
     username: String,
+    displayName: String,
     joinedAt: {
       type: Date,
       default: Date.now
+    },
+    volume: {
+      type: Number,
+      default: 0
+    },
+    earnings: {
+      type: Number,
+      default: 0
     }
   }],
   referralCode: {
@@ -105,6 +114,32 @@ const userSchema = new mongoose.Schema({
       type: Date,
       default: Date.now
     }
+  }],
+  referralStats: {
+    tier1: {
+      users: { type: Number, default: 0 },
+      volume: { type: Number, default: 0 },
+      earnings: { type: Number, default: 0 }
+    },
+    tier2: {
+      users: { type: Number, default: 0 },
+      volume: { type: Number, default: 0 },
+      earnings: { type: Number, default: 0 }
+    },
+    tier3: {
+      users: { type: Number, default: 0 },
+      volume: { type: Number, default: 0 },
+      earnings: { type: Number, default: 0 }
+    }
+  },
+  referralTransactions: [{
+    type: { type: String, enum: ['new_referral', 'trade'], required: true },
+    tier: { type: Number, enum: [1, 2, 3], required: true },
+    referredUser: { type: String },
+    user: { type: String },
+    amount: { type: Number },
+    earnings: { type: Number },
+    timestamp: { type: Date, default: Date.now }
   }],
   joinedAt: {
     type: Date,

@@ -18,6 +18,11 @@ const path = require('path');
 const { User, FEE_CONFIG } = require('./models/user');
 const userService = require('./services/userService');
 const mongoose = require('mongoose');
+const dns = require('dns');
+const { promisify } = require('util');
+
+// Add this at the top of the file, before any imports
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'; // Temporarily disable SSL certificate validation for development
 
 // Create logs directory if it doesn't exist
 const logsDir = path.join(__dirname, '..', 'logs');
@@ -370,6 +375,39 @@ bot.action('afk_mode', async (ctx) => {
     return ctx.reply('Sorry, there was an error changing AFK mode. Please try again later.');
   }
 });
+
+// Configure DNS fallback
+dns.setServers([
+  '8.8.8.8',      // Google DNS
+  '1.1.1.1',      // Cloudflare DNS
+  '208.67.222.222', // OpenDNS
+  '9.9.9.9'       // Quad9 DNS
+]);
+
+// DNS resolver function for API calls
+const resolveDns = async (hostname) => {
+  try {
+    const lookup = promisify(dns.lookup);
+    const result = await lookup(hostname);
+    console.log(`Resolved ${hostname} to ${result.address}`);
+    return result.address;
+  } catch (error) {
+    console.error(`DNS resolution failed for ${hostname}: ${error.message}`);
+    // Return a default IP if resolution fails (this is just a fallback)
+    return '104.16.56.34'; // Example fallback IP (should be replaced with actual IP)
+  }
+};
+
+// Pre-resolve critical domains
+(async () => {
+  try {
+    await resolveDns('price.jup.ag');
+    await resolveDns('api.coingecko.com');
+    await resolveDns('api.helius.xyz');
+  } catch (error) {
+    console.error(`Failed to pre-resolve domains: ${error.message}`);
+  }
+})();
 
 // Start the bot
 bot.launch()

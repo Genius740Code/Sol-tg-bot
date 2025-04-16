@@ -2,12 +2,16 @@ const { Markup } = require('telegraf');
 const userService = require('../services/userService');
 const { logger } = require('../database');
 const { isRateLimited } = require('../../utils/wallet');
-const { FEES } = require('../../utils/constants');
+const { FEES, MESSAGE } = require('../../utils/constants');
 
-// Referrer earning percentage - not included in constants.js
-const REFERRER_EARNING_PERCENTAGE = 35;
+// Helper function to properly escape special characters for Markdown
+const escapeMarkdown = (text) => {
+  if (!text) return '';
+  // Only escape underscore and backtick for traditional Markdown
+  return text.toString().replace(/([_`])/g, '\\$1');
+};
 
-// Show referral information
+// Show referral information with the updated display
 const referralHandler = async (ctx) => {
   try {
     // Check rate limit
@@ -24,66 +28,50 @@ const referralHandler = async (ctx) => {
     
     // Create bot username to use in referral link
     const botUsername = ctx.botInfo.username;
-    const referralLink = `https://t.me/${botUsername}?start=${referralInfo.referralCode}`;
     
-    // Create referral message
-    let message = `👥 *Your Referral Information*\n\n`;
-    message += `📊 Total Referrals: ${referralInfo.referralCount}\n\n`;
-    message += `🔗 Your Referral Link:\n\`${referralLink}\`\n\n`;
-    message += `📋 Referral Code: \`${referralInfo.referralCode}\`\n\n`;
+    // Get first/main referral code to display
+    const mainCode = referralInfo.referralCode;
+    const referralLink = `https://t.me/${botUsername}?start=${mainCode}`;
     
-    // Add custom referral codes if any
-    if (referralInfo.customReferralCodes && referralInfo.customReferralCodes.length > 0) {
-      message += `📝 *Your Custom Referral Codes:*\n`;
-      referralInfo.customReferralCodes.forEach(codeObj => {
-        const customLink = `https://t.me/${botUsername}?start=${codeObj.code}`;
-        message += `• \`${codeObj.code}\` - [Use Link](${customLink})\n`;
-      });
-      message += `\n`;
+    // Get custom code if exists (should only be 1 now)
+    const customCode = referralInfo.customReferralCodes && referralInfo.customReferralCodes.length > 0 
+      ? referralInfo.customReferralCodes[0].code
+      : null;
+      
+    // Create referral message with the requested format
+    let message = `📈 *Referrals*\n\n`;
+    
+    // Add tier information using stats from referralInfo
+    message += `*Tier 1*\n`;
+    message += `• Users: ${referralInfo.stats.tier1.users}\n`;
+    message += `• Volume: ${referralInfo.stats.tier1.volume} SOL\n`;
+    message += `• Earnings: ${referralInfo.stats.tier1.earnings} SOL\n\n`;
+    
+    message += `*Tier 2*\n`;
+    message += `• Users: ${referralInfo.stats.tier2.users}\n`;
+    message += `• Volume: ${referralInfo.stats.tier2.volume} SOL\n`;
+    message += `• Earnings: ${referralInfo.stats.tier2.earnings} SOL\n\n`;
+    
+    message += `*Tier 3*\n`;
+    message += `• Users: ${referralInfo.stats.tier3.users}\n`;
+    message += `• Volume: ${referralInfo.stats.tier3.volume} SOL\n`;
+    message += `• Earnings: ${referralInfo.stats.tier3.earnings} SOL\n\n`;
+    
+    // Add explanation of tier system
+    message += `*Referral Rewards*\n`;
+    message += `• Tier 1 - Direct Referrals: Earn ${FEES.TIER1_PERCENTAGE}% of Nova's ${FEES.NORMAL_PERCENTAGE}% fee on every trade.\n`;
+    message += `• Tier 2 - Indirect Referrals: Earn ${FEES.TIER2_PERCENTAGE}% of Nova's ${FEES.NORMAL_PERCENTAGE}% fee on every trade.\n`;
+    message += `• Tier 3 - Extended Referrals: Earn ${FEES.TIER3_PERCENTAGE}% of Nova's ${FEES.NORMAL_PERCENTAGE}% fee on every trade.\n\n`;
+    
+    // Add referral code information - properly escape the codes
+    message += `📋 *Your Referral Code:* \`${escapeMarkdown(mainCode)}\`\n`;
+    
+    // Add custom code if exists
+    if (customCode) {
+      message += `📝 *Custom Code:* \`${escapeMarkdown(customCode)}\`\n`;
     }
     
-    // Add referral reward info with updated percentages
-    message += `💰 *Rewards*\n`;
-    message += `• You earn ${REFERRER_EARNING_PERCENTAGE}% of your referrals' trading fees\n`;
-    message += `• Your referrals get a ${FEES.REFERRAL_DISCOUNT}% discount on their fees (${FEES.NORMAL_PERCENTAGE}% → ${FEES.REFERRAL_PERCENTAGE.toFixed(3)}%)\n\n`;
-    
-    // Add list of referrals if any
-    if (referralInfo.referrals && referralInfo.referrals.length > 0) {
-      message += `👥 *Your Referrals:*\n`;
-      
-      // Create a table header
-      message += `User | Join Date | Trading Volume | Earnings\n`;
-      message += `-----------------------------------\n`;
-      
-      let totalVolume = 0;
-      let totalEarnings = 0;
-      
-      referralInfo.referrals.forEach((ref, index) => {
-        const username = ref.username ? `@${ref.username}` : `User_${ref.telegramId.substring(0, 5)}`;
-        const joinDate = new Date(ref.joinedAt).toLocaleDateString();
-        
-        // For demo, we'll show some placeholder trading volume and earnings
-        // In a real app, you'd track this in the database
-        const tradingVolume = Math.random() * 1000 * (Date.now() - new Date(ref.joinedAt).getTime()) / (1000 * 60 * 60 * 24 * 30);
-        const estimatedEarnings = tradingVolume * FEES.NORMAL_PERCENTAGE / 100 * REFERRER_EARNING_PERCENTAGE / 100;
-        
-        totalVolume += tradingVolume;
-        totalEarnings += estimatedEarnings;
-        
-        message += `${index + 1}. ${username} | ${joinDate} | $${tradingVolume.toFixed(2)} | $${estimatedEarnings.toFixed(2)}\n`;
-      });
-      
-      message += `\n💵 *Total Trading Volume: $${totalVolume.toFixed(2)}*\n`;
-      message += `💰 *Total Estimated Earnings: $${totalEarnings.toFixed(2)}*\n\n`;
-    } else {
-      message += `You haven't referred any users yet. Share your link to start earning!\n\n`;
-    }
-    
-    message += `🚀 *How It Works*\n`;
-    message += `1. Share your referral link with friends\n`;
-    message += `2. When they join and trade, they get a ${FEES.REFERRAL_DISCOUNT}% discount\n`;
-    message += `3. You earn ${REFERRER_EARNING_PERCENTAGE}% of their trading fees\n`;
-    message += `4. Everyone wins!`;
+    message += `\n🔗 *Share Link:* \`${escapeMarkdown(referralLink)}\`\n\n`;
     
     // Create keyboard for sharing and managing referral codes
     const referralKeyboard = Markup.inlineKeyboard([
@@ -91,14 +79,14 @@ const referralHandler = async (ctx) => {
         Markup.button.url('Share on Telegram', `https://t.me/share/url?url=${encodeURIComponent(referralLink)}&text=${encodeURIComponent('Join me on this awesome crypto trading bot! You get 11% off on fees and I earn rewards when you trade!')}`)
       ],
       [
-        Markup.button.callback('➕ Create Custom Code', 'create_referral_code')
+        Markup.button.callback('✏️ Change Code', 'create_referral_code')
       ],
       [Markup.button.callback('🔙 Back to Menu', 'refresh_data')]
     ]);
     
     // Send referral information
     return ctx.reply(message, {
-      parse_mode: 'Markdown',
+      parse_mode: 'Markdown', // Use standard Markdown instead of MarkdownV2
       disable_web_page_preview: true,
       ...referralKeyboard
     });
@@ -109,17 +97,17 @@ const referralHandler = async (ctx) => {
   }
 };
 
-// Custom referral code handler
+// Custom referral code handler - renamed for consistency but keeping the action name the same
 const createReferralCodeHandler = async (ctx) => {
   try {
     await ctx.answerCbQuery();
     
     await ctx.reply(
-      '➕ *Create Custom Referral Code*\n\n' +
-      'Please enter a custom referral code (4-15 alphanumeric characters).\n\n' +
-      'This code will be used in addition to your default referral code.',
+      '✏️ *Change Referral Code*\n\n' +
+      'Please enter a new referral code (4-15 alphanumeric characters).\n\n' +
+      'This will replace your current referral code.',
       {
-        parse_mode: 'Markdown'
+        parse_mode: 'Markdown' // Use standard Markdown
       }
     );
     
@@ -150,7 +138,7 @@ const handleReferralCodeInput = async (ctx) => {
     }
     
     try {
-      // Add custom referral code
+      // Add custom referral code and replace any existing ones
       await userService.addCustomReferralCode(ctx.from.id, code);
       
       // Create link with the new code
@@ -161,11 +149,11 @@ const handleReferralCodeInput = async (ctx) => {
       await userService.updateUserSettings(ctx.from.id, { state: null });
       
       return ctx.reply(
-        '✅ *Custom Referral Code Created!*\n\n' +
-        `Your new referral code: \`${code}\`\n\n` +
-        `Share this link: \`${referralLink}\``,
+        '✅ *Referral Code Updated!*\n\n' +
+        `Your new referral code: \`${escapeMarkdown(code)}\`\n\n` +
+        `Share this link: \`${escapeMarkdown(referralLink)}\``,
         {
-          parse_mode: 'Markdown',
+          parse_mode: 'Markdown', // Use standard Markdown
           ...Markup.inlineKeyboard([
             [
               Markup.button.url('Share on Telegram', `https://t.me/share/url?url=${encodeURIComponent(referralLink)}&text=${encodeURIComponent('Join me on this awesome crypto trading bot! You get 11% off on fees and I earn rewards when you trade!')}`)
@@ -202,7 +190,7 @@ const changeMainCodeHandler = async (ctx) => {
       'Please enter a new main referral code (4-15 alphanumeric characters).\n\n' +
       'This will replace your default referral code that is shown to others.',
       {
-        parse_mode: 'Markdown'
+        parse_mode: 'Markdown' // Use standard Markdown
       }
     );
     
@@ -232,10 +220,10 @@ const handleMainCodeInput = async (ctx) => {
       
       return ctx.reply(
         '✅ *Main Referral Code Updated!*\n\n' +
-        `Your new main referral code: \`${code}\`\n\n` +
-        `Share this link: \`${referralLink}\``,
+        `Your new main referral code: \`${escapeMarkdown(code)}\`\n\n` +
+        `Share this link: \`${escapeMarkdown(referralLink)}\``,
         {
-          parse_mode: 'Markdown',
+          parse_mode: 'Markdown', // Use standard Markdown
           ...Markup.inlineKeyboard([
             [
               Markup.button.url('Share on Telegram', `https://t.me/share/url?url=${encodeURIComponent(referralLink)}&text=${encodeURIComponent('Join me on this awesome crypto trading bot! You get 11% off on fees and I earn rewards when you trade!')}`)
@@ -267,8 +255,13 @@ const registerReferralHandlers = (bot) => {
   // Handle referral button click
   bot.hears('🔄 Referrals', referralHandler);
   bot.action('view_referrals', async (ctx) => {
-    await ctx.answerCbQuery();
-    return referralHandler(ctx);
+    try {
+      await ctx.answerCbQuery();
+      return referralHandler(ctx);
+    } catch (error) {
+      logger.error(`View referrals action error: ${error.message}`);
+      return ctx.reply('Sorry, something went wrong. Please try again later.');
+    }
   });
   
   // Create custom referral code
@@ -304,6 +297,7 @@ const registerReferralHandlers = (bot) => {
       return ctx.callbackQuery.data = 'refresh_data';
     } catch (error) {
       logger.error(`Back to menu error: ${error.message}`);
+      ctx.reply('Returning to main menu...');
     }
   });
 };
@@ -314,5 +308,6 @@ module.exports = {
   handleReferralCodeInput,
   changeMainCodeHandler,
   handleMainCodeInput,
-  registerReferralHandlers
-}; 
+  registerReferralHandlers,
+  escapeMarkdown
+};

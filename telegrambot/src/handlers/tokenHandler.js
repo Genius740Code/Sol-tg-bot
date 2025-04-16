@@ -1,8 +1,15 @@
-const { getTokenInfo, getTokenPrice, isRateLimited } = require('../../utils/wallet');
+const { getTokenInfo, getTokenPrice, isRateLimited, getSolPrice } = require('../../utils/wallet');
 const { Markup } = require('telegraf');
 const { logger } = require('../database');
 const axios = require('axios');
 const userService = require('../services/userService');
+const { MESSAGE } = require('../../utils/constants');
+
+// Helper function to escape special characters for MarkdownV2
+const escapeMarkdown = (text) => {
+  if (!text) return '';
+  return text.toString().replace(/([_*[\]()~`>#+\-=|{}.!])/g, '\\$1');
+};
 
 // Handle token address analysis
 const tokenInfoHandler = async (ctx) => {
@@ -54,34 +61,43 @@ const tokenInfoHandler = async (ctx) => {
       `$${tokenData.liquidity.toLocaleString()}` : 
       'Unknown';
     
-    // Build response message
+    // Escape special characters for MarkdownV2
+    const escapedTokenName = escapeMarkdown(tokenName);
+    const escapedTokenSymbol = escapeMarkdown(tokenSymbol);
+    const escapedTokenAddress = escapeMarkdown(tokenAddress);
+    const escapedPrice = escapeMarkdown(price);
+    const escapedMarketCap = escapeMarkdown(marketCap);
+    const escapedLiquidity = escapeMarkdown(liquidity);
+    
+    // Build response message with proper escaping for MarkdownV2
     let responseMessage = `🔍 *Token Analysis*\n\n`;
-    responseMessage += `📛 *Name:* ${tokenName}\n`;
-    responseMessage += `🔤 *Symbol:* ${tokenSymbol}\n`;
-    responseMessage += `🏦 *Address:* \`${tokenAddress}\`\n`;
+    responseMessage += `📛 *Name:* ${escapedTokenName}\n`;
+    responseMessage += `🔤 *Symbol:* ${escapedTokenSymbol}\n`;
+    responseMessage += `🏦 *Address:* \`${escapedTokenAddress}\`\n`;
     responseMessage += `🔢 *Decimals:* ${tokenDecimals}\n\n`;
-    responseMessage += `💲 *Price:* ${price}\n`;
-    responseMessage += `💰 *Market Cap:* ${marketCap}\n`;
-    responseMessage += `💧 *Liquidity:* ${liquidity}\n\n`;
+    responseMessage += `💲 *Price:* ${escapedPrice}\n`;
+    responseMessage += `💰 *Market Cap:* ${escapedMarketCap}\n`;
+    responseMessage += `💧 *Liquidity:* ${escapedLiquidity}\n\n`;
     
     // Add supply info if available
     if (tokenInfo.supply) {
       const totalSupply = parseInt(tokenInfo.supply.total) / Math.pow(10, tokenDecimals);
-      responseMessage += `📊 *Total Supply:* ${totalSupply.toLocaleString()}\n\n`;
+      const escapedSupply = escapeMarkdown(totalSupply.toLocaleString());
+      responseMessage += `📊 *Total Supply:* ${escapedSupply}\n\n`;
     }
     
     // Check if token is verified/renounced
     const isRenounced = tokenInfo.isRenounced || false;
     responseMessage += `${isRenounced ? '✅ Renounced' : '⚠️ Not Renounced'}\n\n`;
     
-    // Add links to explorers
+    // Add links to explorers - URLs don't need to be escaped in MarkdownV2
     responseMessage += `🔗 *Links:*\n`;
     responseMessage += `• [Chart](https://dexscreener.com/solana/${tokenAddress})\n`;
     responseMessage += `• [Solscan](https://solscan.io/token/${tokenAddress})\n`;
-    responseMessage += `• [Jupiter](https://jup.ag/swap/SOL-${tokenAddress})\n`;
+    responseMessage += `• [Jupiter](https://jup.ag/swap/SOL\\-${tokenAddress})\n`;
     
-    // Create referral link
-    const refLink = `https://t.me/sol_trojanbot?start=r-${ctx.from.username}-${tokenAddress}`;
+    // Create referral link - must properly escape hyphens
+    const refLink = `https://t.me/sol\\_trojanbot?start=r\\-${ctx.from.username}\\-${tokenAddress}`;
     responseMessage += `• [Share with Referral](${refLink})\n`;
     
     // Add action buttons
@@ -99,10 +115,10 @@ const tokenInfoHandler = async (ctx) => {
       ]
     ]);
     
-    // Send response
+    // Send response with MarkdownV2 format
     return ctx.reply(responseMessage, {
-      parse_mode: 'Markdown',
-      disable_web_page_preview: true,
+      parse_mode: MESSAGE.PARSE_MODE,
+      disable_web_page_preview: MESSAGE.DISABLE_WEB_PAGE_PREVIEW,
       ...actionKeyboard
     });
     
@@ -118,11 +134,7 @@ const buyTokenHandler = async (ctx, tokenAddress) => {
     // If no tokenAddress provided, prompt for token address
     if (!tokenAddress) {
       return ctx.reply(
-        `💰 *Buy ${tokenSymbol}*\n\n` +
-        `Current Price: ${tokenPrice}\n` +
-        `Market Cap: ${marketCap}\n\n` +
-        `Trading Fee: ${normalFee}% (${referralFee}% with referral)\n\n` +
-        `Enter token CA:`,
+        `Please send a token address.`,
         {
           parse_mode: 'Markdown',
           reply_markup: Markup.inlineKeyboard([
@@ -317,25 +329,48 @@ const registerTokenHandlers = (bot) => {
     try {
       await ctx.answerCbQuery();
       const tokenAddress = ctx.match[1];
-      const amount = ctx.match[2];
+      const amount = parseFloat(ctx.match[2]);
+      
+      // Get user
+      const user = await userService.getUserByTelegramId(ctx.from.id);
+      if (!user) {
+        return ctx.reply('You need to start the bot first with /start');
+      }
       
       // Get token info
       const tokenData = await getTokenPrice(tokenAddress);
       const tokenInfo = tokenData.tokenInfo;
       const tokenSymbol = tokenInfo.symbol || 'Unknown';
       
+      // Calculate fee based on amount
+      const feeInfo = await userService.getUserFeeInfo(ctx.from.id);
+      const feePercentage = feeInfo.hasReferral ? feeInfo.discountedFee : feeInfo.baseFee;
+      const feeAmount = amount * feePercentage;
+      
+      // Record the trade for referral tracking
+      if (feeInfo.hasReferral) {
+        await userService.recordReferralTrade(ctx.from.id, amount, feeAmount);
+      }
+      
       // Here you would implement the actual buying logic
       // This would involve calling a Solana transaction
       
-      // For now, just show a confirmation message
-      await ctx.reply(
-        `✅ Transaction submitted!\n\n` +
-        `You are buying ${tokenSymbol} with ${amount} SOL.\n\n` +
-        `This feature is still under implementation for actual transactions.`
-      );
+      // Escape special characters for MarkdownV2
+      const escapedSymbol = escapeMarkdown(tokenSymbol);
       
-      // Back to main menu
-      return ctx.reply('Returning to main menu...');
+      // For now, just show a confirmation message
+      return ctx.reply(
+        `✅ Transaction submitted\\!\n\n` +
+        `You are buying ${escapedSymbol} with ${amount} SOL\\.\n\n` +
+        `Fee: ${feeAmount.toFixed(6)} SOL ${feeInfo.hasReferral ? '\\(includes referral discount\\)' : ''}\n\n` +
+        `This feature is still under implementation for actual transactions\\.`,
+        {
+          parse_mode: MESSAGE.PARSE_MODE,
+          ...Markup.inlineKeyboard([
+            [Markup.button.callback('🔙 Back to Menu', 'refresh_data')]
+          ])
+        }
+      );
     } catch (error) {
       logger.error(`Confirm buy error: ${error.message}`);
       return ctx.reply('Sorry, something went wrong. Please try again later.');
@@ -347,25 +382,59 @@ const registerTokenHandlers = (bot) => {
     try {
       await ctx.answerCbQuery();
       const tokenAddress = ctx.match[1];
-      const percentage = ctx.match[2];
+      const percentage = parseInt(ctx.match[2]);
+      
+      // Get user
+      const user = await userService.getUserByTelegramId(ctx.from.id);
+      if (!user) {
+        return ctx.reply('You need to start the bot first with /start');
+      }
       
       // Get token info
       const tokenData = await getTokenPrice(tokenAddress);
       const tokenInfo = tokenData.tokenInfo;
       const tokenSymbol = tokenInfo.symbol || 'Unknown';
       
+      // Get user token balance
+      const walletAddress = user.getActiveWallet().address;
+      const tokenBalance = await getUserTokenBalance(walletAddress, tokenAddress);
+      const sellAmount = tokenBalance * (percentage / 100);
+      
+      // Calculate SOL value of the sell
+      const price = tokenData.price || 0;
+      const solPrice = await getSolPrice();
+      const solValue = (price * sellAmount) / solPrice;
+      
+      // Calculate fee based on SOL value
+      const feeInfo = await userService.getUserFeeInfo(ctx.from.id);
+      const feePercentage = feeInfo.hasReferral ? feeInfo.discountedFee : feeInfo.baseFee;
+      const feeAmount = solValue * feePercentage;
+      
+      // Record the trade for referral tracking
+      if (feeInfo.hasReferral) {
+        await userService.recordReferralTrade(ctx.from.id, solValue, feeAmount);
+      }
+      
+      // Escape special characters for MarkdownV2
+      const escapedSymbol = escapeMarkdown(tokenSymbol);
+      
       // Here you would implement the actual selling logic
       // This would involve calling a Solana transaction
       
       // For now, just show a confirmation message
-      await ctx.reply(
-        `✅ Transaction submitted!\n\n` +
-        `You are selling ${percentage}% of your ${tokenSymbol}.\n\n` +
-        `This feature is still under implementation for actual transactions.`
+      return ctx.reply(
+        `✅ Transaction submitted\\!\n\n` +
+        `You are selling ${percentage}\\% of your ${escapedSymbol} tokens \\(${sellAmount.toFixed(6)} ${escapedSymbol}\\)\\.\n\n` +
+        `Value: ${solValue.toFixed(6)} SOL\n` +
+        `Fee: ${feeAmount.toFixed(6)} SOL ${feeInfo.hasReferral ? '\\(includes referral discount\\)' : ''}\n\n` +
+        `This feature is still under implementation for actual transactions\\.`,
+        {
+          parse_mode: MESSAGE.PARSE_MODE,
+          ...Markup.inlineKeyboard([
+            [Markup.button.callback('🔙 Back to Menu', 'refresh_data')]
+          ])
+        }
       );
-      
-      // Back to main menu
-      return ctx.reply('Returning to main menu...');
     } catch (error) {
       logger.error(`Confirm sell error: ${error.message}`);
       return ctx.reply('Sorry, something went wrong. Please try again later.');
