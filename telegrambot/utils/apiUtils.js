@@ -3,7 +3,7 @@
  */
 const axios = require('axios');
 const { logger } = require('../src/database');
-const { API } = require('./constants');
+const { API } = require('../../config/constants');
 
 /**
  * Makes a resilient API request with retries and fallbacks

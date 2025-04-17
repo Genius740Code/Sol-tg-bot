@@ -3,7 +3,7 @@ const userService = require('../services/userService');
 const { getSolBalance, getSolPrice, isRateLimited, checkAndRepairUserWallet } = require('../../utils/wallet');
 const { logger } = require('../database');
 const { updateOrSendMessage, extractUserInfo, formatPrice, formatBalance } = require('../../utils/messageUtils');
-const { FEES, ACTIONS } = require('../../utils/constants');
+const { FEES, ACTIONS } = require('../../../config/constants');
 
 // Store startHandler reference
 let startHandler;

@@ -3,7 +3,7 @@ const { generateWallet } = require('../../utils/wallet');
 const { encrypt } = require('../../utils/encryption');
 const { logger } = require('../database');
 const walletUtils = require('../../utils/wallet');
-const { SECURITY } = require('../../utils/constants');
+const { SECURITY } = require('../../../config/constants');
 
 // Helper function to sanitize inputs for security
 const sanitizeInput = (input) => {

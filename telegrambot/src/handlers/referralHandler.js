@@ -2,7 +2,7 @@ const { Markup } = require('telegraf');
 const userService = require('../services/userService');
 const { logger } = require('../database');
 const { isRateLimited } = require('../../utils/wallet');
-const { FEES, MESSAGE } = require('../../utils/constants');
+const { FEES, MESSAGE } = require('../../../config/constants');
 
 // Helper function to properly escape special characters for Markdown
 const escapeMarkdown = (text) => {

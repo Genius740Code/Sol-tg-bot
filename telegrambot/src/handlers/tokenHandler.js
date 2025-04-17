@@ -3,7 +3,7 @@ const { Markup } = require('telegraf');
 const { logger } = require('../database');
 const axios = require('axios');
 const userService = require('../services/userService');
-const { MESSAGE } = require('../../utils/constants');
+const { MESSAGE } = require('../../../config/constants');
 
 // Helper function to escape special characters for MarkdownV2
 const escapeMarkdown = (text) => {

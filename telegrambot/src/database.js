@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const winston = require('winston');
 const path = require('path');
 const fs = require('fs');
+const config = require('../../config/config');
 require('dotenv').config();
 
 // Create logs directory if it doesn't exist
@@ -109,7 +110,7 @@ const connectWithRetry = async (retryNumber = 0) => {
     }
     
     // Configure MongoDB connection with optimized settings
-    await mongoose.connect(process.env.MONGODB_URI, {
+    await mongoose.connect(config.MONGODB_URI, {
       serverSelectionTimeoutMS: 30000,
       connectTimeoutMS: 30000,
       socketTimeoutMS: 60000,
@@ -123,7 +124,25 @@ const connectWithRetry = async (retryNumber = 0) => {
       autoCreate: false // Disable auto-creation for better control
     });
     
-    logger.info('MongoDB Connected');
+    logger.info('MongoDB Connected to main database');
+    
+    // Connect to extension database
+    const extensionConnection = mongoose.createConnection(config.EXTENSION_DB_URI, {
+      serverSelectionTimeoutMS: 30000,
+      connectTimeoutMS: 30000,
+      socketTimeoutMS: 60000,
+      maxPoolSize: 10,
+      minPoolSize: 2
+    });
+    
+    extensionConnection.on('connected', () => {
+      logger.info('MongoDB Connected to extension database');
+    });
+    
+    extensionConnection.on('error', (err) => {
+      logger.error(`MongoDB extension database connection error: ${err}`);
+    });
+    
     isConnecting = false;
     return true;
   } catch (err) {

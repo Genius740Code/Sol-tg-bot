@@ -4,7 +4,7 @@ const { derivePath } = require('ed25519-hd-key');
 const { encrypt, decrypt } = require('./encryption');
 const axios = require('axios');
 const { logger } = require('../src/database');
-const { WALLET, API, RATE_LIMIT } = require('./constants');
+const { WALLET, API, RATE_LIMIT } = require('../../config/constants');
 const { resilientRequest, getPriceWithFallbacks } = require('./apiUtils');
 require('dotenv').config();
 

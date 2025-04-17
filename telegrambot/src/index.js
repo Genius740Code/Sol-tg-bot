@@ -12,7 +12,7 @@ const { limitOrdersHandler, registerLimitOrderHandlers } = require('./handlers/l
 const { registerWalletHandlers } = require('./handlers/walletHandler');
 const { getSolPrice } = require('../utils/wallet');
 const { updateOrSendMessage, extractUserInfo, formatPrice } = require('../utils/messageUtils');
-const { COMMANDS, ACTIONS } = require('../utils/constants');
+const { COMMANDS, ACTIONS } = require('../../config/constants');
 const fs = require('fs');
 const path = require('path');
 const { User, FEE_CONFIG } = require('./models/user');
@@ -20,6 +20,7 @@ const userService = require('./services/userService');
 const mongoose = require('mongoose');
 const dns = require('dns');
 const { promisify } = require('util');
+const config = require('../../config/config');
 
 // Add this at the top of the file, before any imports
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'; // Temporarily disable SSL certificate validation for development

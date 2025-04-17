@@ -4,7 +4,7 @@ const { getSolBalance, getSolPrice, isRateLimited, checkAndRepairUserWallet } = 
 const { logger } = require('./database');
 
 // Constants for fee calculations
-const FEES = require('../utils/constants').FEES;
+const FEES = require('../../config/constants').FEES;
 
 // Cache for refresh data to prevent redundant fetches
 const refreshCache = new Map();
