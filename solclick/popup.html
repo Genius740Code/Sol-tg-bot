@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sol Click Extension</title>
+</head>
+<body>
+  <div style="width: 300px; padding: 10px;">
+    <h2>Buy Presets</h2>
+    <form action="/save-presets" method="POST">
+      <input type="text" name="buy-1" placeholder="1"><br><br>
+      <input type="text" name="buy-2" placeholder="2"><br><br>
+      <input type="text" name="buy-3" placeholder="3"><br><br>
+      <input type="text" name="buy-4" placeholder="4"><br><br>
+      <input type="text" name="buy-5" placeholder="5"><br><br>
+    </form>
+    
+    <h2>Sell Presets</h2>
+    <form action="/save-presets" method="POST">
+      <input type="text" name="sell-1" placeholder="1"><br><br>
+      <input type="text" name="sell-2" placeholder="2"><br><br>
+      <input type="text" name="sell-3" placeholder="3"><br><br>
+      <input type="text" name="sell-4" placeholder="4"><br><br>
+      <input type="text" name="sell-5" placeholder="5"><br><br>
+    </form>
+    
+    <h2>Quick Buy</h2>
+    <form action="/quick-buy" method="POST">
+      <input type="number" name="quick-buy-amount" placeholder="Amount"><br><br>
+    </form>
+    
+    <button type="submit" form="buy-presets">Save</button>
+  </div>
+</body>
+</html>
