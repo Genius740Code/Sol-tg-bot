@@ -32,76 +32,69 @@ const walletManagementHandler = async (ctx) => {
     }));
     
     // Create wallet display message
-    let message = `💳 *Wallet Settings*\n\n`;
-    message += `📚 Need more help? [Click Here!](https://docs.tradeonnova.io/configuration/wallets)\n\n`;
-    message += `🌐 Create, manage and import wallets here.\n\n`;
-    message += `💳 *Your Solana Wallets:*\n\n`;
+    let message = `💳 *Your Solana Wallets:*\n\n`;
     
     // List all wallets with balances
     walletsWithBalances.forEach(wallet => {
       // Mark active wallet as default
       const isDefault = wallet.isActive ? ' (Default)' : '';
-      const balanceText = `${wallet.balance.toFixed(5)} SOL ($${wallet.valueUsd.toFixed(2)} USD)`;
+      const balanceText = `${wallet.balance.toFixed(6)} SOL ($${wallet.valueUsd.toFixed(2)} USD)`;
       
-      message += `• ${wallet.name}${isDefault} - ${balanceText}\n`;
+      // Add a distinguishing arrow for the default wallet
+      const defaultArrow = wallet.isActive ? '→ ' : '• ';
+      
+      message += `${defaultArrow}${wallet.name}${isDefault} - ${balanceText}\n`;
       message += `${wallet.address}\n\n`;
     });
     
-    message += `🔒 Tip: Keep your Nova wallets secure by setting a Security Pin below.`;
+    message += `🔒 Tip: Keep your wallets secure by setting a Security Pin.`;
     
-    // Create wallet selection buttons
-    let walletButtons = [];
+    // Create wallet buttons
+    const buttons = [];
     
-    // Only show wallet switching if user has multiple wallets
+    // Add default wallet buttons if user has multiple wallets
     if (wallets.length > 1) {
-      let walletRows = [];
-      wallets.forEach(wallet => {
-        // Don't show button for the already active wallet
-        if (wallet.address !== activeWallet.address) {
-          walletRows.push(Markup.button.callback(
-            `Switch to ${wallet.name}`, 
-            `switch_wallet_${wallet.address}`
-          ));
-        }
-      });
-      
-      // Group wallet buttons in pairs
-      for (let i = 0; i < walletRows.length; i += 2) {
-        if (i + 1 < walletRows.length) {
-          walletButtons.push([walletRows[i], walletRows[i + 1]]);
-        } else {
-          walletButtons.push([walletRows[i]]);
-        }
-      }
+      buttons.push([
+        Markup.button.callback('🔄 Change Default Wallet', 'switch_wallet')
+      ]);
     }
     
-    // Main wallet management buttons
-    const managementButtons = [
-      [
-        Markup.button.callback('🗑️ Delete Wallet', 'delete_wallet'),
-        Markup.button.callback('📤 Withdraw', 'withdraw_sol')
-      ],
-      [
-        Markup.button.callback('🔐 Security Pin', 'set_security_pin'),
-        Markup.button.callback('⚙️ Settings', 'wallet_settings')
-      ],
-      [Markup.button.callback('🔙 Back to Menu', 'refresh_data')]
-    ];
+    // Wallet management buttons
+    buttons.push([
+      Markup.button.callback('🔄 Refresh', 'refresh_wallets'),
+      Markup.button.callback('🗑️ Delete Wallet', 'delete_wallet')
+    ]);
     
-    // Combine all buttons
-    const allButtons = [
-      ...walletButtons,
-      ...managementButtons
-    ];
+    buttons.push([
+      Markup.button.callback('📤 Withdraw', 'withdraw_sol'), 
+      Markup.button.callback('🔐 Security Pin', 'set_security_pin')
+    ]);
     
-    await ctx.reply(message, {
+    buttons.push([
+      Markup.button.callback('⚙️ Wallet Settings', 'wallet_settings'),
+      Markup.button.callback('🔙 Back to Menu', 'refresh_data')
+    ]);
+    
+    // Send message with keyboard
+    return ctx.reply(message, {
       parse_mode: 'Markdown',
       disable_web_page_preview: true,
-      ...Markup.inlineKeyboard(allButtons)
+      ...Markup.inlineKeyboard(buttons)
     });
   } catch (error) {
     logger.error(`Wallet management error: ${error.message}`);
     return ctx.reply('Sorry, there was an error accessing wallet management. Please try again later.');
+  }
+};
+
+// Add refresh wallets handler
+const refreshWalletsHandler = async (ctx) => {
+  try {
+    await ctx.answerCbQuery('Refreshing wallet information...');
+    return walletManagementHandler(ctx);
+  } catch (error) {
+    logger.error(`Refresh wallets error: ${error.message}`);
+    return ctx.reply('Sorry, there was an error refreshing wallet information. Please try again later.');
   }
 };
 
@@ -165,11 +158,12 @@ const confirmExportKeyHandler = async (ctx) => {
       return ctx.reply('Error decrypting your private key. Please contact support.');
     }
     
-    // Send private key
-    await ctx.reply(
+    // Send private key with a notice about auto-deletion after 5 minutes
+    const keyMessage = await ctx.reply(
       '🔑 *Your Private Key:*\n\n' +
       `\`${privateKey}\`\n\n` +
-      '⚠️ DELETE THIS MESSAGE after saving your key!',
+      '⚠️ This message will automatically delete in 5 minutes for security\n' +
+      '⏱️ Time remaining: 5:00',
       {
         parse_mode: 'Markdown',
         ...Markup.inlineKeyboard([
@@ -179,14 +173,17 @@ const confirmExportKeyHandler = async (ctx) => {
     );
     
     // Also show mnemonic if available
+    let mnemonicMessage = null;
+    let mnemonic = null;
     if (activeWallet.mnemonic) {
       try {
-        const mnemonic = decrypt(activeWallet.mnemonic);
+        mnemonic = decrypt(activeWallet.mnemonic);
         if (mnemonic) {
-          await ctx.reply(
+          mnemonicMessage = await ctx.reply(
             '🔐 *Your Recovery Phrase:*\n\n' +
             `\`${mnemonic}\`\n\n` +
-            '⚠️ DELETE THIS MESSAGE after saving your recovery phrase!',
+            '⚠️ This message will automatically delete in 5 minutes for security\n' +
+            '⏱️ Time remaining: 5:00',
             {
               parse_mode: 'Markdown',
               ...Markup.inlineKeyboard([
@@ -199,6 +196,78 @@ const confirmExportKeyHandler = async (ctx) => {
         logger.error(`Error decrypting mnemonic: ${error.message}`);
       }
     }
+    
+    // Schedule immediate deletion after 5 minutes (300,000 ms)
+    setTimeout(async () => {
+      try {
+        // Delete the key message
+        await ctx.deleteMessage(keyMessage.message_id);
+        
+        // Delete the mnemonic message if it exists
+        if (mnemonicMessage) {
+          await ctx.deleteMessage(mnemonicMessage.message_id);
+        }
+        
+        // Notify user that messages were deleted
+        await ctx.reply(
+          '🔒 Your private key and recovery phrase messages have been automatically deleted for security.',
+          {
+            ...Markup.inlineKeyboard([
+              [Markup.button.callback('🔙 Back to Wallet Management', 'wallet_management')]
+            ])
+          }
+        );
+      } catch (error) {
+        logger.error(`Error deleting key messages: ${error.message}`);
+      }
+    }, 300000); // 5 minutes = 300,000 ms
+    
+    // Set update intervals for countdown (every minute)
+    const intervals = [4, 3, 2, 1]; // Minutes remaining
+    intervals.forEach(minute => {
+      setTimeout(async () => {
+        try {
+          // Update key message
+          await ctx.telegram.editMessageText(
+            ctx.chat.id,
+            keyMessage.message_id,
+            null,
+            '🔑 *Your Private Key:*\n\n' +
+            `\`${privateKey}\`\n\n` +
+            '⚠️ This message will automatically delete for security\n' +
+            `⏱️ Time remaining: ${minute}:00`,
+            {
+              parse_mode: 'Markdown',
+              ...Markup.inlineKeyboard([
+                [Markup.button.callback('🔙 Back to Wallet Management', 'wallet_management')]
+              ])
+            }
+          );
+          
+          // Update mnemonic message if it exists
+          if (mnemonicMessage && mnemonic) {
+            await ctx.telegram.editMessageText(
+              ctx.chat.id,
+              mnemonicMessage.message_id,
+              null,
+              '🔐 *Your Recovery Phrase:*\n\n' +
+              `\`${mnemonic}\`\n\n` +
+              '⚠️ This message will automatically delete for security\n' +
+              `⏱️ Time remaining: ${minute}:00`,
+              {
+                parse_mode: 'Markdown',
+                ...Markup.inlineKeyboard([
+                  [Markup.button.callback('🔙 Back to Wallet Management', 'wallet_management')]
+                ])
+              }
+            );
+          }
+        } catch (error) {
+          logger.error(`Error updating countdown: ${error.message}`);
+        }
+      }, (5 - minute) * 60000); // Calculate when to run each update
+    });
+    
   } catch (error) {
     logger.error(`Confirm export key error: ${error.message}`);
     return ctx.reply('Sorry, something went wrong. Please try again later.');
@@ -634,7 +703,7 @@ const switchWalletSelectionHandler = async (ctx) => {
       }
       
       return [Markup.button.callback(
-        `${wallet.name} - ${wallet.address.substring(0, 6)}...${wallet.address.substring(wallet.address.length - 4)}`,
+        `Set ${wallet.name} as Default`,
         `switch_to_wallet_${wallet._id}`
       )];
     }).filter(button => button !== null);
@@ -643,10 +712,10 @@ const switchWalletSelectionHandler = async (ctx) => {
     walletButtons.push([Markup.button.callback('🔙 Back to Wallet Management', 'wallet_management')]);
     
     await ctx.reply(
-      '↔️ *Switch Wallet*\n\n' +
-      `Current wallet: *${activeWallet.name}*\n` +
+      '↔️ *Change Default Wallet*\n\n' +
+      `Current default wallet: *${activeWallet.name}*\n` +
       `Address: \`${activeWallet.address}\`\n\n` +
-      'Select a wallet to switch to:',
+      'Select a wallet to set as default:',
       {
         parse_mode: 'Markdown',
         ...Markup.inlineKeyboard(walletButtons)
@@ -658,13 +727,13 @@ const switchWalletSelectionHandler = async (ctx) => {
   }
 };
 
-// Switch to selected wallet handler
+// Switch to wallet handler
 const switchToWalletHandler = async (ctx) => {
   try {
     await ctx.answerCbQuery();
     
-    // Extract wallet ID from callback data
-    const walletId = ctx.match[0].split('_').slice(3).join('_');
+    // Extract wallet ID from callback data using regex match
+    const walletId = ctx.match[0].split('switch_to_wallet_')[1];
     
     if (!walletId) {
       return ctx.reply('Invalid wallet selection');
@@ -677,28 +746,38 @@ const switchToWalletHandler = async (ctx) => {
       return ctx.reply('You need to start the bot first with /start');
     }
     
-    // Find the selected wallet by ID
-    const selectedWallet = user.wallets.id(walletId);
-    
-    if (!selectedWallet) {
-      return ctx.reply('Wallet not found');
+    // Find the wallet in user's wallets
+    const wallet = user.wallets.id(walletId);
+    if (!wallet) {
+      return ctx.reply(
+        '❌ Wallet not found. Please try again.',
+        {
+          ...Markup.inlineKeyboard([
+            [Markup.button.callback('🔙 Back to Wallet Management', 'wallet_management')]
+          ])
+        }
+      );
     }
     
     // Set all wallets to inactive
-    user.wallets.forEach(wallet => {
-      wallet.isActive = false;
+    user.wallets.forEach(w => {
+      w.isActive = false;
     });
     
-    // Set selected wallet to active
-    selectedWallet.isActive = true;
+    // Set the selected wallet to active
+    wallet.isActive = true;
     
-    // Save changes
+    // Update legacy fields for backward compatibility
+    user.walletAddress = wallet.address;
+    user.encryptedPrivateKey = wallet.encryptedPrivateKey;
+    user.mnemonic = wallet.mnemonic;
+    
     await user.save();
     
     await ctx.reply(
-      '✅ *Wallet Switched Successfully*\n\n' +
-      `Now using wallet: *${selectedWallet.name}*\n` +
-      `Address: \`${selectedWallet.address}\``,
+      `✅ Default wallet changed to *${wallet.name}*\n\n` +
+      `Address: \`${wallet.address}\`\n\n` +
+      `This wallet will now be used for all transactions.`,
       {
         parse_mode: 'Markdown',
         ...Markup.inlineKeyboard([
@@ -706,6 +785,7 @@ const switchToWalletHandler = async (ctx) => {
         ])
       }
     );
+    
   } catch (error) {
     logger.error(`Switch to wallet error: ${error.message}`);
     return ctx.reply('Sorry, there was an error switching wallets. Please try again later.');
@@ -1000,6 +1080,9 @@ const registerWalletHandlers = (bot) => {
   // Wallet management
   bot.action('wallet_management', walletManagementHandler);
   
+  // Refresh wallets
+  bot.action('refresh_wallets', refreshWalletsHandler);
+  
   // Export private key
   bot.action('export_key', exportPrivateKeyHandler);
   bot.action('confirm_export_key', confirmExportKeyHandler);
@@ -1081,6 +1164,21 @@ const registerWalletHandlers = (bot) => {
 
 module.exports = {
   walletManagementHandler,
+  exportPrivateKeyHandler,
+  confirmExportKeyHandler,
+  importWalletHandler,
+  createNewWalletHandler,
+  confirmNewWalletHandler,
+  changeWalletAddressHandler,
+  switchWalletSelectionHandler,
+  switchToWalletHandler,
+  renameWalletHandler,
+  prepareWalletRenameHandler,
+  withdrawSolHandler,
+  refreshWalletsHandler,
   registerWalletHandlers,
+  deleteWalletHandler,
+  confirmDeleteWalletHandler,
+  securityPinHandler,
   handleWalletTextInput
 }; 

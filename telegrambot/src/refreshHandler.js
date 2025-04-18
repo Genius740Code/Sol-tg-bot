@@ -3,7 +3,6 @@ const userService = require('./services/userService');
 const { getSolBalance, getSolPrice, isRateLimited, checkAndRepairUserWallet } = require('../utils/wallet');
 const { logger } = require('./database');
 
-// Constants for fee calculations
 const FEES = require('../../config/constants').FEES;
 
 // Cache for refresh data to prevent redundant fetches

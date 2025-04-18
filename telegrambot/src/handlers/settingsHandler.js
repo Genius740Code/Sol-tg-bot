@@ -738,16 +738,16 @@ const registerSettingsHandlers = (bot) => {
   // Other settings
   bot.action('trading_presets', tradingPresetsHandler);
   bot.action('confirm_trades', confirmTradesHandler);
-  bot.action('account_security', walletSettingsHandler);
   bot.action('afk_mode', afkModeHandler);
   bot.action('bot_clicks', botClicksHandler);
   
-  // Wallet management (keep existing)
-  bot.action('wallet_management', walletManagementHandler);
-  bot.action('export_key', exportKeyHandler);
-  bot.action('confirm_export', confirmExportHandler);
-  bot.action('import_wallet', importWalletHandler);
-  bot.action('create_wallet', createWalletHandler);
+  // Wallet integration - link to wallet management
+  bot.action('account_security', async (ctx) => {
+    await ctx.answerCbQuery();
+    // Redirect to wallet management using the handler from walletHandler.js
+    const { walletManagementHandler } = require('./walletHandler');
+    return walletManagementHandler(ctx);
+  });
   
   // Back buttons
   bot.action('back_to_settings', settingsHandler);

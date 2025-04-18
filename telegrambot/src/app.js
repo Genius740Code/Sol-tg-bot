@@ -29,6 +29,10 @@ async function startBot() {
     registerReferralHandlers(bot);
     registerSettingsHandlers(bot);
     
+    // Register wallet handlers
+    const { registerWalletHandlers } = require('./handlers/walletHandler');
+    registerWalletHandlers(bot);
+    
     // Register direct refresh action
     bot.action('refresh_data', refreshHandler);
     
@@ -186,8 +190,9 @@ async function startBot() {
     bot.action('wallet_management', async (ctx) => {
       try {
         await ctx.answerCbQuery();
-        // Call the wallet management handler
-        return bot.context._handlers.walletManagementHandler(ctx);
+        // Use the imported walletManagementHandler
+        const { walletManagementHandler } = require('./handlers/walletHandler');
+        return walletManagementHandler(ctx);
       } catch (error) {
         logger.error(`Wallet management error: ${error.message}`);
         return ctx.reply('Sorry, there was an error accessing wallet management.');
@@ -228,42 +233,6 @@ async function startBot() {
         } catch (error) {
           logger.error(`Referral handler error: ${error.message}`);
           return ctx.reply('Sorry, there was an error accessing the referral program.');
-        }
-      },
-      walletManagementHandler: async (ctx) => {
-        try {
-          await ctx.answerCbQuery();
-          // Get user
-          const user = await userService.getUserByTelegramId(ctx.from.id);
-          if (!user) {
-            return ctx.reply('You need to create an account first. Please use /start command.');
-          }
-          
-          // Create wallet management keyboard
-          const walletKeyboard = Markup.inlineKeyboard([
-            [
-              Markup.button.callback('📥 Import Wallet', 'import_wallet'),
-              Markup.button.callback('📤 Export Wallet', 'export_wallet')
-            ],
-            [
-              Markup.button.callback('🔑 Generate New Wallet', 'generate_wallet'),
-              Markup.button.callback('💼 Switch Wallet', 'switch_wallet')
-            ],
-            [Markup.button.callback('🔙 Back to Menu', 'refresh_data')]
-          ]);
-          
-          return ctx.reply(
-            '💳 *Wallet Management*\n\n' +
-            `Current Wallet: \`${user.walletAddress}\`\n\n` +
-            'Choose an option:',
-            {
-              parse_mode: 'Markdown',
-              ...walletKeyboard
-            }
-          );
-        } catch (error) {
-          logger.error(`Wallet management handler error: ${error.message}`);
-          return ctx.reply('Sorry, there was an error accessing wallet management.');
         }
       },
       settingsHandler: async (ctx) => {
