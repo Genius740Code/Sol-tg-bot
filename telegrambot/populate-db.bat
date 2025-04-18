@@ -1,0 +1,3 @@
+@echo off
+echo Redirecting to scripts folder...
+call scripts\populate-db.bat 
