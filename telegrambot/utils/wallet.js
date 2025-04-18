@@ -142,19 +142,12 @@ const ULTRA_LONG_CACHE_TTL = 60 * 60 * 1000; // 1 hour for extreme fallback
 // Connection pool for Solana RPC
 const connectionPool = {
   connections: [],
-  maxConnections: 5,
+  maxConnections: 3, // Reduced from 5
   currentIndex: 0,
   endpoints: [
     'https://api.mainnet-beta.solana.com',
-    'https://solana-api.projectserum.com',
     'https://rpc.ankr.com/solana',
-    'https://solana-mainnet.g.alchemy.com/v2/demo',
-    'https://solana.public-rpc.com',
-    'https://mainnet.rpcpool.com',
-    'https://mainnet.solana.com',
-    'https://solana.rpcpool.com',
-    'https://api.solscan.io/rpc',
-    'https://solana-api.tt-prod.net'  // Fixed truncated endpoint
+    'https://solana.public-rpc.com'
   ],
   // Track failed endpoints to avoid retrying them too often
   failedEndpoints: new Map(),
@@ -315,7 +308,7 @@ const getSolPrice = async () => {
 };
 
 /**
- * Get SOL balance for a wallet - Optimized with connection pooling
+ * Get SOL balance for a wallet - Simplified with reduced endpoints
  * @param {string} address - Wallet address
  * @returns {Promise<number>} - SOL balance
  */
@@ -355,29 +348,17 @@ const getSolBalance = async (address) => {
     
     logger.warn(`Error fetching balance with primary connection: ${error.message}, trying backup`);
     
-    // Try multiple backup endpoints in sequence
-    const backupEndpoints = [
-      'https://api.mainnet-beta.solana.com',
-      'https://solana.api.mango.com',
-      'https://rpc.hellomoon.io',
-      'https://rpc.ankr.com/solana'
-    ];
+    // Try only one backup endpoint
+    const backupEndpoint = 'https://api.mainnet-beta.solana.com';
     
-    // Try each backup endpoint
-    for (const backupEndpoint of backupEndpoints) {
-      try {
-        const backupConnection = new Connection(backupEndpoint, 'confirmed');
-        const balance = await backupConnection.getBalance(new PublicKey(address));
-        return balance / LAMPORTS_PER_SOL;
-      } catch (backupError) {
-        logger.warn(`Backup endpoint ${backupEndpoint} failed: ${backupError.message}`);
-        // Continue to next backup endpoint
-      }
+    try {
+      const backupConnection = new Connection(backupEndpoint, 'confirmed');
+      const balance = await backupConnection.getBalance(new PublicKey(address));
+      return balance / LAMPORTS_PER_SOL;
+    } catch (backupError) {
+      logger.error(`Backup endpoint failed: ${backupError.message}`);
+      return WALLET.DEFAULT_SOL_BALANCE;
     }
-    
-    // All backups failed, log error and return default balance
-    logger.error(`All RPC endpoints failed for ${address}: ${error.message}`);
-    return WALLET.DEFAULT_SOL_BALANCE;
   }
 };
 
@@ -566,6 +547,57 @@ const checkAndRepairUserWallet = async (user) => {
   }
 };
 
+/**
+ * Get wallet balance using Helius API
+ * @param {string} address - Wallet address
+ * @returns {Promise<object>} - Balance data including SOL and tokens
+ */
+const getWalletBalanceHelius = async (address) => {
+  try {
+    // Validate address to prevent errors
+    if (!address || address === 'Wallet not available') {
+      return { solBalance: WALLET.DEFAULT_SOL_BALANCE, tokens: [] };
+    }
+    
+    const heliusApiKey = process.env.HELIUS_API_KEY;
+    if (!heliusApiKey) {
+      logger.error('Helius API key not found for balance check');
+      throw new Error('Helius API key not found');
+    }
+    
+    // Call the Helius API to get balance data
+    const endpoint = `https://api.helius.xyz/v0/addresses/${address}/balances?api-key=${heliusApiKey}`;
+    
+    const options = {
+      url: endpoint,
+      method: 'GET',
+      timeout: API.TIMEOUT_MS
+    };
+    
+    const data = await resilientRequest(options);
+    
+    if (data && data.tokens) {
+      // Extract SOL balance (native SOL has mint address of "So11111111111111111111111111111111111111112")
+      const solToken = data.tokens.find(t => t.mint === 'So11111111111111111111111111111111111111112');
+      const solBalance = solToken ? solToken.amount / LAMPORTS_PER_SOL : WALLET.DEFAULT_SOL_BALANCE;
+      
+      // Return formatted result
+      return {
+        solBalance,
+        tokens: data.tokens.filter(t => t.mint !== 'So11111111111111111111111111111111111111112')
+      };
+    } else {
+      throw new Error('Invalid balance data from Helius API');
+    }
+  } catch (error) {
+    logger.error(`Error fetching balance with Helius API: ${error.message}`);
+    
+    // Fallback to regular getSolBalance for SOL only
+    const solBalance = await getSolBalance(address);
+    return { solBalance, tokens: [] };
+  }
+};
+
 module.exports = {
   generateWallet,
   importWalletFromPrivateKey,
@@ -574,5 +606,6 @@ module.exports = {
   getTokenInfo,
   getTokenPrice,
   isRateLimited,
-  checkAndRepairUserWallet
+  checkAndRepairUserWallet,
+  getWalletBalanceHelius
 }; 

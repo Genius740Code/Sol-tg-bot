@@ -1,3 +1,0 @@
-@echo off
-echo Redirecting to scripts folder...
-call scripts\fix-all.bat 

@@ -15,32 +15,6 @@ A Telegram bot for Solana token trading and wallet management.
 - 📈 Take profit/stop loss settings
 - 🔔 Price alerts
 
-## Recent Fixes
-
-The following issues have been resolved:
-
-1. **RPC Connection Issues**
-   - Added multiple fallback RPC endpoints
-   - Implemented connection pooling with automatic failover
-   - Added retry mechanisms with increasing delays
-   - Fixed the truncated RPC endpoint URL
-
-2. **DNS Resolution Issues**
-   - Added DNS fallback servers (Google, Cloudflare, OpenDNS)
-   - Pre-resolve critical domains at startup
-   - Added DNS error handling for price.jup.ag
-   - Created alternative price data sources
-
-3. **API Resilience**
-   - Created a new apiUtils.js with resilient request handling
-   - Implemented multiple price API fallbacks (Jupiter, Birdeye, CoinGecko, Coinbase, Binance)
-   - Added extended caching for when all APIs fail
-   - Increased timeout values and retry attempts
-
-4. **Enhanced Logging**
-   - Enabled sensitive information logging for better debugging
-   - Improved error messages with more context
-   - Added tiered logging levels for different error severities
 
 ## Prerequisites
 

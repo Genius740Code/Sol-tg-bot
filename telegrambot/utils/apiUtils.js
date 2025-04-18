@@ -96,90 +96,37 @@ const resilientRequest = async (options) => {
 const getPriceWithFallbacks = async (coinId, type = 'sol') => {
   try {
     if (type === 'sol') {
-      // For SOL, try multiple price APIs
+      // For SOL, use only CoinGecko (50 req/min limit)
       const options = {
         url: 'https://api.coingecko.com/api/v3/simple/price',
-        fallbackUrls: [
-          'https://price.jup.ag/v4/price',
-          'https://api.coinbase.com/v2/prices/SOL-USD/spot',
-          'https://api.binance.com/api/v3/ticker/price'
-        ],
         method: 'GET',
-        params: type === 'sol' ? { ids: 'solana', vs_currencies: 'usd' } : { ids: coinId },
+        params: { ids: 'solana', vs_currencies: 'usd' },
         timeout: API.TIMEOUT_MS,
         validateResponse: (response) => {
-          if (response.status !== 200) return false;
-          
-          // Different validation for different APIs based on URL
-          if (response.config.url.includes('coingecko')) {
-            return response.data && response.data.solana && response.data.solana.usd;
-          } else if (response.config.url.includes('jup.ag')) {
-            return response.data && response.data.data && response.data.data.SOL;
-          } else if (response.config.url.includes('coinbase')) {
-            return response.data && response.data.data && response.data.data.amount;
-          } else if (response.config.url.includes('binance')) {
-            return response.data && response.data.symbol === 'SOLUSDT' && response.data.price;
-          }
-          
-          return false;
+          return response.status === 200 && 
+                 response.data && 
+                 response.data.solana && 
+                 response.data.solana.usd;
         }
       };
       
       try {
         const data = await resilientRequest(options);
         
-        // Parse price based on which API succeeded
         if (data.solana && data.solana.usd) {
           return data.solana.usd;
-        } else if (data.data && data.data.SOL) {
-          return data.data.SOL.price;
-        } else if (data.data && data.data.amount) {
-          return parseFloat(data.data.amount);
-        } else if (data.symbol === 'SOLUSDT') {
-          return parseFloat(data.price);
         }
         
         throw new Error('Price data not found in response');
       } catch (error) {
-        logger.error(`All price services failed: ${error.message}`);
+        logger.error(`CoinGecko price service failed: ${error.message}`);
         return 0;
       }
     } else if (type === 'token') {
-      // For tokens, try Jupiter then fallbacks
-      const options = {
-        url: `https://price.jup.ag/v4/price?ids=${coinId}`,
-        fallbackUrls: [
-          `https://public-api.birdeye.so/public/price?address=${coinId}`,
-          `https://api.dexscreener.com/latest/dex/tokens/${coinId}`
-        ],
-        method: 'GET',
-        timeout: API.TIMEOUT_MS
-      };
-      
-      try {
-        const data = await resilientRequest(options);
-        
-        // Parse based on which API succeeded
-        if (data.data && data.data[coinId] && data.data[coinId].price) {
-          return data.data[coinId].price;
-        } else if (data.success && data.data && data.data.value) {
-          return data.data.value;
-        } else if (data.pairs && data.pairs.length > 0) {
-          // DexScreener returns multiple pairs, use the one with highest liquidity
-          const pairs = data.pairs.sort((a, b) => 
-            parseFloat(b.liquidity?.usd || 0) - parseFloat(a.liquidity?.usd || 0)
-          );
-          
-          if (pairs.length > 0 && pairs[0].priceUsd) {
-            return parseFloat(pairs[0].priceUsd);
-          }
-        }
-        
-        throw new Error('Token price data not found in response');
-      } catch (error) {
-        logger.error(`All token price services failed for ${coinId}: ${error.message}`);
-        return 0;
-      }
+      // For tokens, use only Helius API via token info instead of price APIs
+      // This will return 0 for price, but the token metadata will still be available
+      logger.info(`Using Helius API for token information only: ${coinId}`);
+      return 0;
     }
     
     throw new Error(`Unsupported price type: ${type}`);

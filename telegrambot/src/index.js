@@ -313,26 +313,69 @@ const memoryCleanupJob = schedule.scheduleJob('*/30 * * * *', async () => {
   }
 });
 
+// Configure DNS fallback
+dns.setServers([
+  '8.8.8.8',      // Google DNS
+  '1.1.1.1',      // Cloudflare DNS
+  '208.67.222.222', // OpenDNS
+  '9.9.9.9'       // Quad9 DNS
+]);
+
+// DNS resolver function for API calls
+const resolveDns = async (hostname) => {
+  try {
+    const lookup = promisify(dns.lookup);
+    const result = await lookup(hostname);
+    console.log(`Resolved ${hostname} to ${result.address}`);
+    return result.address;
+  } catch (error) {
+    console.error(`DNS resolution failed for ${hostname}: ${error.message}`);
+    // Return a default IP if resolution fails (this is just a fallback)
+    return '104.16.56.34'; // Example fallback IP (should be replaced with actual IP)
+  }
+};
+
+// Pre-resolve critical domains
+(async () => {
+  try {
+    await resolveDns('api.coingecko.com');
+    await resolveDns('api.helius.xyz');
+    await resolveDns('api.mainnet-beta.solana.com');
+  } catch (error) {
+    console.error(`Failed to pre-resolve domains: ${error.message}`);
+  }
+})();
+
 // Handle graceful shutdown
 const gracefulShutdown = async (signal) => {
-  logger.info(`${signal} received. Stopping bot...`);
+  logger.info(`${signal} received. Starting clean shutdown process...`);
   
-  // Stop all scheduled jobs
-  schedule.gracefulShutdown()
-    .then(() => logger.info('Scheduled jobs stopped'))
-    .catch(err => logger.error(`Error stopping scheduled jobs: ${err.message}`))
-    .finally(() => {
-      // Close database connection
-      mongoose.connection.close()
-        .then(() => logger.info('Database connection closed'))
-        .catch(err => logger.error(`Error closing database connection: ${err.message}`))
-        .finally(() => {
-          // Stop bot
-          bot.stop();
-          logger.info('Bot started successfully');
-          process.exit(0);
-        });
-    });
+  try {
+    // First stop the bot to prevent new interactions
+    logger.info('Stopping Telegram bot...');
+    await bot.stop();
+    logger.info('Telegram bot stopped successfully');
+    
+    // Then stop all scheduled jobs
+    logger.info('Stopping scheduled jobs...');
+    await schedule.gracefulShutdown();
+    logger.info('Scheduled jobs stopped successfully');
+    
+    // Finally close database connection
+    logger.info('Closing database connection...');
+    await mongoose.connection.close();
+    logger.info('Database connection closed successfully');
+    
+    logger.info('Clean shutdown completed');
+    
+    // Give time for logs to flush
+    setTimeout(() => {
+      process.exit(0);
+    }, 500);
+  } catch (err) {
+    logger.error(`Error during shutdown: ${err.message}`);
+    process.exit(1);
+  }
 };
 
 // Handle termination signals
@@ -375,39 +418,6 @@ bot.action('afk_mode', async (ctx) => {
     return ctx.reply('Sorry, there was an error changing AFK mode. Please try again later.');
   }
 });
-
-// Configure DNS fallback
-dns.setServers([
-  '8.8.8.8',      // Google DNS
-  '1.1.1.1',      // Cloudflare DNS
-  '208.67.222.222', // OpenDNS
-  '9.9.9.9'       // Quad9 DNS
-]);
-
-// DNS resolver function for API calls
-const resolveDns = async (hostname) => {
-  try {
-    const lookup = promisify(dns.lookup);
-    const result = await lookup(hostname);
-    console.log(`Resolved ${hostname} to ${result.address}`);
-    return result.address;
-  } catch (error) {
-    console.error(`DNS resolution failed for ${hostname}: ${error.message}`);
-    // Return a default IP if resolution fails (this is just a fallback)
-    return '104.16.56.34'; // Example fallback IP (should be replaced with actual IP)
-  }
-};
-
-// Pre-resolve critical domains
-(async () => {
-  try {
-    await resolveDns('price.jup.ag');
-    await resolveDns('api.coingecko.com');
-    await resolveDns('api.helius.xyz');
-  } catch (error) {
-    console.error(`Failed to pre-resolve domains: ${error.message}`);
-  }
-})();
 
 // Start the bot
 bot.launch()
