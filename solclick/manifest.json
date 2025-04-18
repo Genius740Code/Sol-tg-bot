@@ -1,91 +1,74 @@
 {
-    "manifest_version": 3,
-    "name": "Sol Click",
-    "version": "1.0",
-    "description": "An extension that automatically buys Solana tokens when a specified call is made.",
-    "icons": {
-      "16": "icons/sol-16.png",
-      "48": "icons/sol-48.png",
-      "128": "icons/sol-128.png"
-    },
-    "permissions": [
-      "activeTab",
-      "storage",
-      "tabs",
-      "webRequest",
-      "webRequestBlocking",
-      "https://api.solana.com/*",
-      "https://ape.pro/*",
-      "https://ave.ai/*",
-      "https://axiom.trade/*",
-      "https://backup.axiom.trade/*",
-      "https://debot.ai/*",
-      "https://dexscreener.com/*",
-      "https://discord.com/*",
-      "https://extension.bloombot.app/*",
-      "https://gmgn.ai/*",
-      "https://neo-backup.bullx.io/*",
-      "https://neo.bullx.io/*",
-      "https://photon-sol.tinyastro.io/*",
-      "https://pump.fun/*",
-      "https://solscan.io/*",
-      "https://web.telegram.org/*",
-      "https://x.com/*"
-    ],
-    "background": {
-      "service_worker": "background.js"
-    },
-    "action": {
-      "default_popup": "popup.html",
-      "default_icon": "icons/sol-128.png"
-    },
-    "content_scripts": [
-      {
-        "matches": [
-          "*://*.solana.com/*",
-          "*://ape.pro/*",
-          "*://ave.ai/*",
-          "*://axiom.trade/*",
-          "*://backup.axiom.trade/*",
-          "*://debot.ai/*",
-          "*://dexscreener.com/*",
-          "*://discord.com/*",
-          "*://extension.bloombot.app/*",
-          "*://gmgn.ai/*",
-          "*://neo-backup.bullx.io/*",
-          "*://neo.bullx.io/*",
-          "*://photon-sol.tinyastro.io/*",
-          "*://pump.fun/*",
-          "*://solscan.io/*",
-          "*://web.telegram.org/*",
-          "*://x.com/*"
-        ],
-        "js": ["content.js"]
-      }
-    ],
-    "host_permissions": [
-      "https://api.solana.com/*",
-      "https://ape.pro/*",
-      "https://ave.ai/*",
-      "https://axiom.trade/*",
-      "https://backup.axiom.trade/*",
-      "https://debot.ai/*",
-      "https://dexscreener.com/*",
-      "https://discord.com/*",
-      "https://extension.bloombot.app/*",
-      "https://gmgn.ai/*",
-      "https://neo-backup.bullx.io/*",
-      "https://neo.bullx.io/*",
-      "https://photon-sol.tinyastro.io/*",
-      "https://pump.fun/*",
-      "https://solscan.io/*",
-      "https://web.telegram.org/*",
-      "https://x.com/*"
-    ],
-    "content_security_policy": {
-      "extension_pages": [
-        "script-src 'self'; object-src 'self';"
-      ]
+  "manifest_version": 3,
+  "name": "Sol Click",
+  "version": "1.0",
+  "description": "An extension that automatically buys Solana tokens when a specified call is made.",
+  "icons": {
+    "16": "icons/sol-16.png",
+    "48": "icons/sol-48.png",
+    "128": "icons/sol-128.png"
+  },
+  "permissions": [
+    "activeTab",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://api.solana.com/*",
+    "https://ape.pro/*",
+    "https://ave.ai/*",
+    "https://axiom.trade/*",
+    "https://backup.axiom.trade/*",
+    "https://debot.ai/*",
+    "https://dexscreener.com/*",
+    "https://discord.com/*",
+    "https://extension.bloombot.app/*",
+    "https://gmgn.ai/*",
+    "https://neo-backup.bullx.io/*",
+    "https://neo.bullx.io/*",
+    "https://photon-sol.tinyastro.io/*",
+    "https://pump.fun/*",
+    "https://solscan.io/*",
+    "https://web.telegram.org/*",
+    "https://x.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "login/login.html",
+    "default_icon": "icons/sol-128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.solana.com/*",
+        "*://ape.pro/*",
+        "*://ave.ai/*",
+        "*://axiom.trade/*",
+        "*://backup.axiom.trade/*",
+        "*://debot.ai/*",
+        "*://dexscreener.com/*",
+        "*://discord.com/*",
+        "*://extension.bloombot.app/*",
+        "*://gmgn.ai/*",
+        "*://neo-backup.bullx.io/*",
+        "*://neo.bullx.io/*",
+        "*://photon-sol.tinyastro.io/*",
+        "*://pump.fun/*",
+        "*://solscan.io/*",
+        "*://web.telegram.org/*",
+        "*://x.com/*"
+      ],
+      "js": ["content.js"]
     }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["styles/main.css"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self';"
   }
-  
+}

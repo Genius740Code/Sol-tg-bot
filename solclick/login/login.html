@@ -3,20 +3,20 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Login Popup</title>
+  <title>Sol Click - Verification</title>
+  <link rel="stylesheet" href="../styles/main.css">
 </head>
 <body>
-
-<div id="login-popup">    
+  <div id="login-popup">
+    <h2>Sol Click Access</h2>
     <label for="code">Verification Code:</label>
-    <input type="text" id="code" name="code" required>
+    <input type="password" id="code" name="code" placeholder="Enter 4-digit code" maxlength="4">
     
-    <button type="button" id="get-code">Get Code</button>
-
     <button type="submit" id="verify-button">Verify</button>
-</div>
+    
+    <div id="status-message"></div>
+  </div>
 
-<script src="script.js"></script>
-
+  <script src="script.js"></script>
 </body>
 </html>

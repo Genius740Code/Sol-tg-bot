@@ -1,7 +1,17 @@
-/**
- * SolClick Extension - Popup Script
- * Handles user interactions with the popup interface
- */
+// Check authentication status first
+document.addEventListener('DOMContentLoaded', () => {
+  // Check if user is authenticated
+  chrome.storage.local.get(['authenticated'], (result) => {
+    if (result.authenticated !== true) {
+      // Not authenticated, redirect to login
+      window.location.href = 'login/login.html';
+      return;
+    }
+    
+    // User is authenticated, continue with popup initialization
+    initializePopup();
+  });
+});
 
 // Default configuration
 const DEFAULT_CONFIG = {
@@ -16,8 +26,7 @@ let saveButton;
 let quickBuyForm;
 let statusMessage;
 
-// Initialize the popup when DOM is loaded
-document.addEventListener('DOMContentLoaded', () => {
+function initializePopup() {
   // Get form elements
   buyForms = document.querySelectorAll('input[name^="buy-"]');
   sellForms = document.querySelectorAll('input[name^="sell-"]');
@@ -29,6 +38,20 @@ document.addEventListener('DOMContentLoaded', () => {
   statusMessage.id = 'status-message';
   document.body.appendChild(statusMessage);
   
+  // Add logout button
+  const logoutButton = document.createElement('button');
+  logoutButton.id = 'logout-button';
+  logoutButton.textContent = 'Logout';
+  logoutButton.style.marginTop = '10px';
+  document.querySelector('.container').appendChild(logoutButton);
+  
+  // Add logout event listener
+  logoutButton.addEventListener('click', () => {
+    chrome.storage.local.remove(['authenticated'], () => {
+      window.location.href = 'login/login.html';
+    });
+  });
+  
   // Load saved presets
   loadSavedPresets();
   
@@ -37,7 +60,7 @@ document.addEventListener('DOMContentLoaded', () => {
   
   // Setup quick buy action
   document.getElementById('quick-buy-button').addEventListener('click', handleQuickBuy);
-});
+}
 
 /**
  * Load saved presets from storage
