@@ -43,6 +43,7 @@ npm install
 ```
 BOT_TOKEN=<your_telegram_bot_token>
 MONGODB_URI=<your_mongodb_connection_string>
+EXTENSION_DB_URI=<your_extension_db_connection_string>
 ENCRYPTION_KEY=<your_encryption_key>
 HELIUS_API_KEY=<your_helius_api_key>
 ```
@@ -66,6 +67,30 @@ For development with auto-reload:
 ```bash
 npm run dev
 ```
+
+## Security Features
+
+### Extension Verification Codes
+
+The bot implements secure verification codes for the browser extension:
+
+- Verification codes are dynamically generated 40-character strings
+- Codes expire after 5 minutes for enhanced security
+- Codes are deleted after successful use (one-time use only)
+- Extension users must exist in the main user database
+- Weekly automatic logout for enhanced security
+
+### Database Architecture
+
+The system uses a two-database architecture for enhanced security:
+
+1. **Main User Database**: Stores user accounts, wallets, and trading data
+2. **Extension Database**: Stores extension-specific user data and verification
+
+These databases are linked by the telegramId field, ensuring that:
+- Only verified Telegram users can use the extension
+- User settings sync between the bot and extension
+- Trading preferences are consistent across platforms
 
 ## Database Management
 
@@ -191,6 +216,9 @@ If the bot isn't responding:
 - `/positions` - View your trading positions
 - `/orders` - View your limit orders
 - `/referrals` - View and manage referrals
+- `/wallets` - Manage your wallets
+
+The extension verification code feature is only available through the extension for enhanced security.
 
 ## Trading Features
 
@@ -224,7 +252,7 @@ The referral system includes:
 
 ## Security Considerations
 
-- Private keys are encrypted with AES-256
+- Private keys are encrypted with AES-128-GCM (using 64-bit derived keys)
 - Rate limiting to prevent API abuse
 - Error handling and logging
 

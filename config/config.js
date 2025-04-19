@@ -15,6 +15,9 @@ module.exports = {
   // Bot token
   BOT_TOKEN: process.env.BOT_TOKEN,
   
+  // Bot name
+  BOT_NAME: process.env.BOT_NAME || 'slbotnamehere',
+  
   // Encryption key
   ENCRYPTION_KEY: process.env.ENCRYPTION_KEY,
   

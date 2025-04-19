@@ -5,6 +5,7 @@ const { registerPositionHandlers, getAllUserTokens } = require('./handlers/posit
 const { registerLimitOrderHandlers } = require('./handlers/limitOrderHandler');
 const { registerReferralHandlers } = require('./handlers/referralHandler');
 const { registerSettingsHandlers } = require('./handlers/settingsHandler');
+const { registerExtensionHandlers } = require('./handlers/extensionHandler');
 const { logger } = require('./database');
 const userService = require('./services/userService');
 const { getSolPrice } = require('../utils/wallet');
@@ -28,6 +29,7 @@ async function startBot() {
     registerLimitOrderHandlers(bot);
     registerReferralHandlers(bot);
     registerSettingsHandlers(bot);
+    registerExtensionHandlers(bot);
     
     // Register wallet handlers
     const { registerWalletHandlers } = require('./handlers/walletHandler');

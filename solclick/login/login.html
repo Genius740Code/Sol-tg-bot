@@ -3,16 +3,49 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Sol Click - Verification</title>
+  <title>Sol Click - Login</title>
   <link rel="stylesheet" href="../styles/main.css">
+  <style>
+    #login-popup {
+      padding: 20px;
+      text-align: center;
+    }
+    .button-container {
+      display: flex;
+      justify-content: center;
+      margin-top: 15px;
+      gap: 10px;
+    }
+    #status-message {
+      margin-top: 15px;
+      padding: 8px;
+      border-radius: 4px;
+    }
+    .success {
+      background-color: #d4edda;
+      color: #155724;
+    }
+    .error {
+      background-color: #f8d7da;
+      color: #721c24;
+    }
+    .info {
+      background-color: #d1ecf1;
+      color: #0c5460;
+    }
+  </style>
 </head>
 <body>
   <div id="login-popup">
-    <h2>Sol Click Access</h2>
-    <label for="code">Verification Code:</label>
-    <input type="password" id="code" name="code" placeholder="Enter 4-digit code" maxlength="4">
+    <h2>Sol Click Login</h2>
+    <p>Please enter your verification code from the Telegram bot</p>
     
-    <button type="submit" id="verify-button">Verify</button>
+    <input type="text" id="code" name="code" placeholder="Enter verification code" minlength="40" maxlength="40">
+    
+    <div class="button-container">
+      <button type="button" id="get-code-button">Get Code</button>
+      <button type="submit" id="verify-button">Verify</button>
+    </div>
     
     <div id="status-message"></div>
   </div>

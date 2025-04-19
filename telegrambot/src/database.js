@@ -4,6 +4,8 @@ const { createLogger, format, transports } = winston;
 const path = require('path');
 const fs = require('fs');
 const config = require('../../config/config');
+const { createExtensionUserModel } = require('./models/extension');
+const { User } = require('./models/user');
 
 // Create logs directory if it doesn't exist
 const logsDir = path.join(__dirname, '..', 'logs');
@@ -50,6 +52,10 @@ let isConnecting = false;
 let connectionRetries = 0;
 const MAX_RETRIES = 10;
 const INITIAL_RETRY_DELAY = 1000;
+
+// Global variable to store the extension connection
+let extensionConnection = null;
+let ExtensionUser = null;
 
 // Connection state tracking for better debugging
 mongoose.connection.on('connected', () => {
@@ -127,7 +133,7 @@ const connectWithRetry = async (retryNumber = 0) => {
     logger.info('MongoDB Connected to main database');
     
     // Connect to extension database
-    const extensionConnection = mongoose.createConnection(config.EXTENSION_DB_URI, {
+    extensionConnection = mongoose.createConnection(config.EXTENSION_DB_URI, {
       serverSelectionTimeoutMS: 30000,
       connectTimeoutMS: 30000,
       socketTimeoutMS: 60000,
@@ -137,6 +143,8 @@ const connectWithRetry = async (retryNumber = 0) => {
     
     extensionConnection.on('connected', () => {
       logger.info('MongoDB Connected to extension database');
+      // Initialize the ExtensionUser model
+      ExtensionUser = createExtensionUserModel(extensionConnection);
     });
     
     extensionConnection.on('error', (err) => {
@@ -219,9 +227,15 @@ const dbCache = {
   }
 };
 
-module.exports = { 
-  connectDB: connectWithRetry, 
-  mongoose, 
+module.exports = {
+  connectDB: connectWithRetry,
+  mongoose,
   logger,
-  dbCache 
+  dbCache,
+  closeConnection: () => mongoose.connection.close(),
+  extensionConnection: () => extensionConnection,
+  models: {
+    ExtensionUser: () => ExtensionUser,
+    User: () => User
+  }
 }; 

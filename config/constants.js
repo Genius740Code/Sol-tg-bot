@@ -64,7 +64,8 @@ const FEES = {
     POSITIONS: 'positions',
     ORDERS: 'orders',
     REFERRALS: 'referrals',
-    WALLETS: 'wallets'
+    WALLETS: 'wallets',
+    EXTENSION: 'extension'
   };
   
   // Action command data

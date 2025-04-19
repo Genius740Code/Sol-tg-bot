@@ -120,7 +120,7 @@ const generateWalletAddress = () => {
 };
 
 // Function to generate a fake private key (will be encrypted) - Optimized
-const generatePrivateKey = () => crypto.randomBytes(32).toString('hex');
+const generatePrivateKey = () => crypto.randomBytes(64).toString('hex');
 
 // Function to generate a random mnemonic phrase - Optimized
 const generateMnemonic = () => {
@@ -249,6 +249,9 @@ rl.question('How many fake users do you want to generate? ', async (answer) => {
   const batchSize = isVeryLarge ? 250 : (isLarge ? 100 : 50); // Increased batch sizes
   const generationBatchSize = isVeryLarge ? 2500 : (isLarge ? 1000 : count); // Increased batch sizes
   const progressInterval = isVeryLarge ? 1000 : (isLarge ? 250 : 50); // Adjusted for better performance
+  
+  // Calculate number of generation batches needed
+  const generationBatches = Math.ceil(count / generationBatchSize);
   
   // Use MongoDB URI from .env file
   const mongoUri = process.env.MONGODB_URI;
@@ -523,6 +526,119 @@ function generateFakeUserFast(telegramId, username, firstName, lastName, customR
     positions: []
   };
 }
+
+// Fast User Tracker - Monitors when users post and logs it with precise timing
+const createUserTracker = () => {
+  const userPosts = new Map();
+  const trackedUsers = new Set();
+  
+  // High precision timer using process.hrtime.bigint() for nanosecond precision
+  const getTimestamp = () => process.hrtime.bigint();
+  
+  return {
+    /**
+     * Start tracking a user
+     * @param {string} userId - The user ID to track
+     * @returns {boolean} - Whether the user was successfully added for tracking
+     */
+    trackUser: (userId) => {
+      if (!userId) return false;
+      trackedUsers.add(userId);
+      console.log(`Now tracking user: ${userId}`);
+      return true;
+    },
+    
+    /**
+     * Record that a user has posted content
+     * @param {string} userId - The user ID who posted
+     * @param {string} contentId - Optional ID of the posted content
+     * @returns {object} - Timing information
+     */
+    recordPost: (userId, contentId = 'unknown') => {
+      if (!trackedUsers.has(userId)) {
+        console.log(`User ${userId} is not being tracked`);
+        return null;
+      }
+      
+      const timestamp = getTimestamp();
+      const postInfo = {
+        userId,
+        contentId,
+        timestamp,
+        date: new Date()
+      };
+      
+      userPosts.set(contentId, postInfo);
+      const formattedTime = new Date().toISOString().replace('T', ' ').substring(0, 23);
+      console.log(`[${formattedTime}] User ${userId} posted content: ${contentId}`);
+      
+      return postInfo;
+    },
+    
+    /**
+     * Process detection of a post, calculating elapsed time
+     * @param {string} contentId - ID of the posted content
+     * @returns {object} - Detection information with elapsed time
+     */
+    detectPost: (contentId) => {
+      const postInfo = userPosts.get(contentId);
+      if (!postInfo) {
+        console.log(`No record found for content: ${contentId}`);
+        return null;
+      }
+      
+      const detectionTime = getTimestamp();
+      const elapsedNanos = detectionTime - postInfo.timestamp;
+      const elapsedMs = Number(elapsedNanos) / 1000000;
+      
+      const result = {
+        userId: postInfo.userId,
+        contentId,
+        elapsedMs,
+        elapsedNanos,
+        detectedAt: new Date(),
+        postTime: postInfo.date
+      };
+      
+      // Log the detection with precise timing
+      console.log(`DETECTED: User ${postInfo.userId} post ${contentId} - Response time: ${elapsedMs.toFixed(3)}ms`);
+      
+      // For ultra-fast detection (< 100ms)
+      if (elapsedMs < 100) {
+        console.log(`⚡ ULTRA-FAST DETECTION (${elapsedMs.toFixed(3)}ms) ⚡`);
+      }
+      
+      return result;
+    },
+    
+    /**
+     * Get statistics about tracked users and their posts
+     * @returns {object} - Statistics information
+     */
+    getStats: () => {
+      const stats = {
+        totalTrackedUsers: trackedUsers.size,
+        totalPostsRecorded: userPosts.size,
+        trackedUsers: Array.from(trackedUsers),
+        recentPosts: Array.from(userPosts.entries())
+          .slice(-10)
+          .map(([id, info]) => ({
+            contentId: id, 
+            userId: info.userId,
+            postedAt: info.date
+          }))
+      };
+      
+      return stats;
+    }
+  };
+};
+
+// Initialize the user tracker
+const userTracker = createUserTracker();
+
+// Export the userTracker for use in other modules
+module.exports = { userTracker };
 
 // Handle readline close
 rl.on('close', () => {

@@ -96,7 +96,6 @@ const resilientRequest = async (options) => {
 const getPriceWithFallbacks = async (coinId, type = 'sol') => {
   try {
     if (type === 'sol') {
-      // For SOL, use only CoinGecko (50 req/min limit)
       const options = {
         url: 'https://api.coingecko.com/api/v3/simple/price',
         method: 'GET',
@@ -123,8 +122,6 @@ const getPriceWithFallbacks = async (coinId, type = 'sol') => {
         return 0;
       }
     } else if (type === 'token') {
-      // For tokens, use only Helius API via token info instead of price APIs
-      // This will return 0 for price, but the token metadata will still be available
       logger.info(`Using Helius API for token information only: ${coinId}`);
       return 0;
     }

@@ -9,6 +9,7 @@ const { settingsHandler, registerSettingsHandlers } = require('./handlers/settin
 const { positionsHandler, registerPositionHandlers } = require('./handlers/positionHandler');
 const { limitOrdersHandler, registerLimitOrderHandlers } = require('./handlers/limitOrderHandler');
 const { registerWalletHandlers } = require('./handlers/walletHandler');
+const { registerExtensionHandlers } = require('./handlers/extensionHandler');
 const { getSolPrice } = require('../utils/wallet');
 const { updateOrSendMessage, extractUserInfo, formatPrice } = require('../utils/messageUtils');
 const { COMMANDS, ACTIONS } = require('../../config/constants');
@@ -20,9 +21,6 @@ const mongoose = require('mongoose');
 const dns = require('dns');
 const { promisify } = require('util');
 const config = require('../../config/config');
-
-// Add this at the top of the file, before any imports
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'; // Temporarily disable SSL certificate validation for development
 
 // Create logs directory if it doesn't exist
 const logsDir = path.join(__dirname, '..', 'logs');
@@ -88,7 +86,8 @@ bot.telegram.setMyCommands([
   { command: COMMANDS.POSITIONS, description: 'View your trading positions' },
   { command: COMMANDS.ORDERS, description: 'View your limit orders' },
   { command: COMMANDS.REFERRALS, description: 'View and manage referrals' },
-  { command: COMMANDS.WALLETS, description: 'Manage your wallets' }
+  { command: COMMANDS.WALLETS, description: 'Manage your wallets' },
+  { command: COMMANDS.EXTENSION, description: 'Get authentication code for the browser extension' }
 ]);
 
 // Register all handlers
@@ -98,6 +97,7 @@ registerLimitOrderHandlers(bot);
 registerReferralHandlers(bot);
 registerSettingsHandlers(bot);
 registerWalletHandlers(bot);
+registerExtensionHandlers(bot);
 
 // Start command
 bot.command(COMMANDS.START, startHandler);
@@ -136,14 +136,16 @@ bot.command(COMMANDS.HELP, async (ctx) => {
     '/positions - View your trading positions\n' +
     '/orders - View your limit orders\n' +
     '/referrals - View and manage referrals\n' +
-    '/wallets - Manage your wallets\n\n' +
+    '/wallets - Manage your wallets\n' +
+    '/extension - Get code for browser extension login\n\n' +
     '*Features:*\n' +
     `${feeText}\n` +
     '• Create limit orders for precise trading\n' +
     '• Analyze tokens with Helius API\n' +
     '• View your trading positions and P/L\n' +
     '• Set price alerts and take profit/stop loss\n' +
-    '• Refer friends and earn 35% of their fees\n\n' +
+    '• Refer friends and earn 35% of their fees\n' +
+    '• Use our browser extension for quick trading\n\n' +
     '*Paste a token address to analyze it and get market data.*',
     {
       parse_mode: 'Markdown'
@@ -291,6 +293,23 @@ schedule.scheduleJob('*/1 * * * *', async () => {
     // and execute trades if conditions are met
   } catch (error) {
     logger.error(`Error updating SOL price: ${error.message}`);
+  }
+});
+
+// Schedule auto-logout process once per day
+schedule.scheduleJob('0 0 * * *', async () => {
+  try {
+    logger.info('Running scheduled auto-logout process');
+    const extensionService = require('./services/extensionService');
+    const loggedOutCount = await extensionService.processAutoLogouts();
+    
+    if (loggedOutCount > 0) {
+      logger.info(`Auto-logout process completed, logged out ${loggedOutCount} users`);
+    } else {
+      logger.info('Auto-logout process completed, no users needed to be logged out');
+    }
+  } catch (error) {
+    logger.error(`Error during scheduled auto-logout: ${error.message}`);
   }
 });
 

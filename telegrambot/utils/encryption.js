@@ -4,8 +4,8 @@ const config = require('../../config/config');
 // Encryption key cache to avoid repeatedly deriving the same key
 let ENCRYPTION_KEY = null;
 
-// Encryption algorithm
-const ALGORITHM = 'aes-256-gcm';
+// Encryption algorithm - changed from AES-256-GCM to AES-128-GCM to work with 64-bit keys
+const ALGORITHM = 'aes-128-gcm';
 
 // Cache for frequently used operations
 const operationCache = {
@@ -17,7 +17,7 @@ const operationCache = {
 };
 
 /**
- * Get or derive encryption key - optimized with caching
+ * Get or derive encryption key - modified to use 64-bit key (8 bytes)
  * @returns {Buffer} Encryption key
  */
 const getEncryptionKey = () => {
@@ -26,8 +26,10 @@ const getEncryptionKey = () => {
   
   const configKey = config.ENCRYPTION_KEY || 'default-encryption-key-that-needs-to-be-changed-in-prod';
   
-  // Use SHA-256 to create a key of exactly the right length
-  ENCRYPTION_KEY = crypto.createHash('sha256').update(configKey).digest();
+  // Use a custom hash approach to create a 64-bit key (8 bytes)
+  // For AES-128-GCM, we'll need to pad this to 16 bytes (128 bits)
+  const hash = crypto.createHash('md5').update(configKey).digest();
+  ENCRYPTION_KEY = Buffer.from(hash.slice(0, 16)); // Take first 16 bytes of MD5 hash
   return ENCRYPTION_KEY;
 };
 
