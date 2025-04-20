@@ -30,7 +30,7 @@ const refreshHandler = async (ctx) => {
     
     // If this is a callback query, acknowledge it immediately
     if (ctx.callbackQuery && typeof ctx.answerCbQuery === 'function') {
-      await ctx.answerCbQuery('Loading...').catch(() => {});
+      await ctx.answerCbQuery().catch(() => {});
     }
 
     // Get user data
@@ -82,7 +82,7 @@ const refreshHandler = async (ctx) => {
     ]);
     
     // Extract wallet address
-    let walletAddress = 'Loading...';
+    let walletAddress = '--';
     let solBalance = 0;
     let solPrice = 0;
     let balanceUsd = 0;
@@ -128,8 +128,8 @@ const refreshHandler = async (ctx) => {
     } else {
       // Show loading indicators
       messageText += 
-        `💎 SOL Balance: Loading...\n` +
-        `📈 SOL Price: Loading...\n\n` +
+        `💎 SOL Balance: --\n` +
+        `📈 SOL Price: --\n\n` +
         `${feeText}`;
     }
 
@@ -152,7 +152,7 @@ const refreshHandler = async (ctx) => {
         getSolPrice(),
         (async () => {
           try {
-            if (walletAddress && walletAddress !== 'Wallet not available' && walletAddress !== 'Loading...') {
+            if (walletAddress && walletAddress !== 'Wallet not available' && walletAddress !== '--') {
               return await getSolBalance(walletAddress);
             }
             return 0;
@@ -222,7 +222,7 @@ async function updateBalanceData(ctx, userId, cacheKey, walletAddress, sentMessa
       getSolPrice(),
       (async () => {
         try {
-          if (walletAddress && walletAddress !== 'Wallet not available' && walletAddress !== 'Loading...') {
+          if (walletAddress && walletAddress !== 'Wallet not available' && walletAddress !== '--') {
             return await getSolBalance(walletAddress);
           }
           return 0;

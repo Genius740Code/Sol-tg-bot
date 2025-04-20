@@ -47,13 +47,6 @@ const refreshHandler = async (ctx) => {
       return;
     }
 
-    // Send initial loading message
-    let loadingMsgId;
-    if (!messageId) {
-      const loadingMsg = await ctx.reply('⌛ Loading your dashboard...');
-      loadingMsgId = loadingMsg.message_id;
-    }
-    
     // Get user data
     const user = await userService.getUserByTelegramId(userId);
     if (!user) {
@@ -101,7 +94,7 @@ const refreshHandler = async (ctx) => {
     // Send intermediate message with partial data if we have it
     if (refreshData.solPrice || refreshData.solBalance) {
       refreshData.partial = true;
-      await sendRefreshMessage(ctx, refreshData, chatId, messageId || loadingMsgId);
+      await sendRefreshMessage(ctx, refreshData, chatId, messageId);
     }
     
     // Get SOL price and balance in parallel
@@ -139,7 +132,7 @@ const refreshHandler = async (ctx) => {
     });
     
     // Send the final message with all data
-    await sendRefreshMessage(ctx, refreshData, chatId, messageId || loadingMsgId);
+    await sendRefreshMessage(ctx, refreshData, chatId, messageId);
   } catch (error) {
     logger.error(`Refresh handler error: ${error.message}`);
     return ctx.reply('Sorry, something went wrong. Please try again later or contact support.');
@@ -192,114 +185,14 @@ async function sendRefreshMessage(ctx, data, chatId, messageId) {
     const solBalanceText = data.solBalance !== null ? 
       `💎 SOL Balance: ${data.solBalance.toFixed(4)} SOL` + 
       (data.balanceUsd !== null ? ` ($${data.balanceUsd.toFixed(2)})` : '') : 
-      '💎 SOL Balance: Loading...';
+      '💎 SOL Balance: --';
     
     const solPriceText = data.solPrice !== null ? 
       `📈 SOL Price: $${data.solPrice.toFixed(2)}` : 
-      '📈 SOL Price: Loading...';
+      '📈 SOL Price: --';
     
     // Display loading indicator for partial data
-    const loadingIndicator = data.partial ? '\n\n⌛ Updating data...' : '';
+    const loadingIndicator = data.partial ? '\n\n⏳ Updating...' : '';
     
     const messageText = 
-      `🤖 *Crypto Trading Bot* 🤖\n\n` +
-      `👛 Wallet: \`${data.walletAddress}\`\n\n` +
-      `${solBalanceText}\n` +
-      `${solPriceText}${statsText}\n\n` +
-      `${feeText}${loadingIndicator}`;
-    
-    // Update the message or send a new one
-    if (messageId) {
-      await ctx.telegram.editMessageText(
-        chatId,
-        messageId,
-        null,
-        messageText,
-        {
-          parse_mode: 'Markdown',
-          ...mainMenuInlineKeyboard
-        }
-      ).catch(err => {
-        logger.warn(`Could not update message: ${err.message}`);
-      });
-    } else {
-      await ctx.reply(
-        messageText,
-        {
-          parse_mode: 'Markdown',
-          ...mainMenuInlineKeyboard
-        }
-      );
-    }
-  } catch (error) {
-    logger.error(`Error sending refresh message: ${error.message}`);
-  }
-}
-
-/**
- * Update cache in background without blocking user interaction
- * @param {string|number} userId - Telegram user ID
- * @param {string} cacheKey - Cache key for this user
- */
-async function updateCacheInBackground(userId, cacheKey) {
-  try {
-    // Don't await this, let it run in background
-    setTimeout(async () => {
-      try {
-        const user = await userService.getUserByTelegramId(userId);
-        if (!user) return;
-        
-        let walletAddress = 'Wallet not available';
-        try {
-          const activeWallet = user.getActiveWallet();
-          walletAddress = activeWallet.address;
-        } catch (error) {
-          walletAddress = user.walletAddress || 'Wallet not available';
-        }
-        
-        // Get latest data
-        const [solPrice, solBalance] = await Promise.all([
-          getSolPrice().catch(() => null),
-          (walletAddress && walletAddress !== 'Wallet not available' ? 
-            getSolBalance(walletAddress).catch(() => null) : 0)
-        ]);
-        
-        // Update cache with fresh data
-        const currentCache = refreshCache.get(cacheKey);
-        if (currentCache) {
-          const updatedData = { ...currentCache.data };
-          if (solPrice !== null) updatedData.solPrice = solPrice;
-          if (solBalance !== null) updatedData.solBalance = solBalance;
-          updatedData.balanceUsd = solBalance * solPrice;
-          
-          refreshCache.set(cacheKey, {
-            timestamp: Date.now(),
-            data: updatedData
-          });
-        }
-      } catch (error) {
-        logger.error(`Background cache update error: ${error.message}`);
-      }
-    }, 100); // Very small delay to ensure this doesn't block
-  } catch (error) {
-    logger.error(`Error scheduling background update: ${error.message}`);
-  }
-}
-
-// Clean up stale cache entries periodically
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, value] of refreshCache.entries()) {
-    if (now - value.timestamp > REFRESH_CACHE_TTL * 2) {
-      refreshCache.delete(key);
-    }
-  }
-}, 60000); // Run cleanup every minute
-
-// Set up module exports
-module.exports = { 
-  refreshHandler,
-  setStartHandler: (handler) => {
-    startHandler = handler;
-  }
-}; 
+      `

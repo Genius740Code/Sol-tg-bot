@@ -16,9 +16,9 @@ const FEES = {
   
   // Rate limiting
   const RATE_LIMIT = {
-    MAX_REQUESTS: 5,                 // Max requests per time window
-    WINDOW_MS: 5000,                 // Time window in milliseconds
-    COOLDOWN_MS: 3000                // Cooldown period after rate limit hit
+    MAX_REQUESTS: 3,                 // Max requests per time window
+    WINDOW_MS: 1000,                 // Time window in milliseconds (1 second)
+    COOLDOWN_MS: 1000                // Cooldown period after rate limit hit
   };
   
   // Wallet configuration

@@ -27,9 +27,6 @@ const startHandler = async (ctx) => {
       return;
     }
 
-    // Send immediate response to improve perceived speed
-    const loadingMessage = await ctx.reply('Loading your dashboard...');
-
     // Extract referral code if any
     let referralCode = null;
     if (userInfo.messageText && typeof userInfo.messageText === 'string') {
@@ -60,7 +57,6 @@ const startHandler = async (ctx) => {
         isNewUser = true;
       } catch (createError) {
         logger.error(`Error creating user: ${createError.message}`);
-        await ctx.telegram.deleteMessage(userInfo.chatId, loadingMessage.message_id).catch(() => {});
         if (typeof ctx.reply === 'function') {
           ctx.reply('❌ There was an error creating your account. Please try again later.');
         }
@@ -81,9 +77,6 @@ const startHandler = async (ctx) => {
     const solPrice = await solPricePromise;
     
     try {
-      // Delete the loading message to avoid cluttering the chat
-      await ctx.telegram.deleteMessage(userInfo.chatId, loadingMessage.message_id).catch(() => {});
-      
       // Only send welcome message for new users
       if (isNewUser || walletCreated) {
         // Always get the active wallet to ensure we're using the correct one
