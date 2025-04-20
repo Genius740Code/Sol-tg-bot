@@ -17,9 +17,6 @@ const startHandler = async (ctx) => {
       return ctx.reply('Error: Could not identify user. Please try again or contact support.');
     }
     
-    // Lookup user in database
-    let user = await getUserByTelegramId(userInfo.userId);
-    
     // Check rate limiting
     if (isRateLimited(userInfo.userId)) {
       if (typeof ctx.reply === 'function') {
@@ -30,6 +27,9 @@ const startHandler = async (ctx) => {
       return;
     }
 
+    // Send immediate response to improve perceived speed
+    const loadingMessage = await ctx.reply('Loading your dashboard...');
+
     // Extract referral code if any
     let referralCode = null;
     if (userInfo.messageText && typeof userInfo.messageText === 'string') {
@@ -39,15 +39,14 @@ const startHandler = async (ctx) => {
       }
     }
     
-    // Get user and SOL price in parallel
-    const [existingUser, solPrice] = await Promise.all([
-      getUserByTelegramId(userInfo.userId),
-      getSolPrice()
-    ]);
+    // Start fetching SOL price immediately
+    const solPricePromise = getSolPrice();
     
+    // Get user from database
+    let user = await getUserByTelegramId(userInfo.userId);
     let isNewUser = false;
     
-    if (!existingUser) {
+    if (!user) {
       // Create user object with available data
       const userData = { 
         id: userInfo.userId, 
@@ -61,51 +60,56 @@ const startHandler = async (ctx) => {
         isNewUser = true;
       } catch (createError) {
         logger.error(`Error creating user: ${createError.message}`);
-        // Handle the error gracefully
+        await ctx.telegram.deleteMessage(userInfo.chatId, loadingMessage.message_id).catch(() => {});
         if (typeof ctx.reply === 'function') {
           ctx.reply('❌ There was an error creating your account. Please try again later.');
         }
         return;
       }
     } else {
-      user = existingUser;
-      
       // Reset any existing state that might be causing issues
       if (user.state) {
         user.state = null;
         await user.save();
-        logger.info(`Reset state for user: ${user.telegramId}`);
       }
     }
     
     // Ensure wallet is properly structured - this will create a new wallet if needed
     const walletCreated = await checkAndRepairUserWallet(user);
     
-    // Send welcome message for new users, or show main menu for returning users
-    if (isNewUser || walletCreated) {
-      try {
+    // Get SOL price (should be ready by now)
+    const solPrice = await solPricePromise;
+    
+    try {
+      // Delete the loading message to avoid cluttering the chat
+      await ctx.telegram.deleteMessage(userInfo.chatId, loadingMessage.message_id).catch(() => {});
+      
+      // Only send welcome message for new users
+      if (isNewUser || walletCreated) {
         // Always get the active wallet to ensure we're using the correct one
         const activeWallet = user.getActiveWallet ? user.getActiveWallet() : (user.wallets && user.wallets.length > 0 ? user.wallets.find(w => w.isActive) : null);
         
         if (activeWallet && activeWallet.address) {
-          // For new users, send a welcome message first
+          // For new users, send a welcome message
           const welcomeMessage = `🎉 *Welcome to the Solana Bot!*\n\nYour wallet has been created:\n\`${activeWallet.address}\`\n\nSOL Price: $${formatPrice(solPrice)}\n\nUse /help to see all available commands.`;
           
-          await updateOrSendMessage(ctx, welcomeMessage, {});
+          await ctx.reply(welcomeMessage, { parse_mode: 'Markdown' });
           
-          // Short delay to ensure messages are ordered properly
-          await new Promise(resolve => setTimeout(resolve, 500));
+          // Minimal delay to ensure proper message ordering
+          await new Promise(resolve => setTimeout(resolve, 100));
         }
-      } catch (walletError) {
-        logger.error(`Error displaying wallet for new user: ${walletError.message}`);
       }
+    } catch (walletError) {
+      logger.error(`Error displaying wallet for new user: ${walletError.message}`);
     }
     
     // Show main menu for all users (using refreshHandler)
     await refreshHandler(ctx);
     
-    // Update user activity
-    await updateUserActivity(userInfo.userId);
+    // Update user activity in background
+    updateUserActivity(userInfo.userId).catch(err => 
+      logger.error(`Error updating user activity: ${err.message}`)
+    );
     
   } catch (error) {
     logger.error(`Error in startHandler: ${error.message}`);

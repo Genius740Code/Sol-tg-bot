@@ -180,7 +180,7 @@ const formatBalance = (balance, decimals = 9) => {
 // Keep track of message updates to avoid Telegram API errors
 const messageUpdateTracker = {
   lastUpdates: new Map(), // chatId_messageId -> timestamp
-  updateInterval: 1100, // Minimum time between updates (ms), to avoid Telegram's 30 msgs/second limit
+  updateInterval: 300, // Reduce from 1100ms to 300ms to make responses faster
   pendingUpdates: new Map(), // chatId_messageId -> { text, options }
   isProcessing: false
 };
@@ -238,7 +238,7 @@ const processPendingUpdates = async (ctx) => {
       }
       
       // Add a small delay between updates to help stay within rate limits
-      await new Promise(resolve => setTimeout(resolve, 50));
+      await new Promise(resolve => setTimeout(resolve, 5));
     }
   } catch (error) {
     logger.error(`Error in processPendingUpdates: ${error.message}`);

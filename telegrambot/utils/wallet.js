@@ -146,8 +146,9 @@ const connectionPool = {
   currentIndex: 0,
   endpoints: [
     'https://api.mainnet-beta.solana.com',
-    'https://rpc.ankr.com/solana',
-    'https://solana.public-rpc.com'
+    'https://solana.public-rpc.com',
+    'https://api.solanamainnet.chainstacklabs.com',
+    'https://mainnet.solana-api.com'
   ],
   // Track failed endpoints to avoid retrying them too often
   failedEndpoints: new Map(),
@@ -318,48 +319,49 @@ const getSolBalance = async (address) => {
     return WALLET.DEFAULT_SOL_BALANCE;
   }
   
-  // Use connection pool to distribute load
-  const connection = connectionPool.getConnection();
-  let usedEndpoint = '';
+  // Try all available endpoints in sequence until we get a successful response
+  const endpoints = [...connectionPool.endpoints];
+  let balance = WALLET.DEFAULT_SOL_BALANCE;
+  let success = false;
   
-  try {
-    // Find the endpoint used by this connection
-    for (const connData of connectionPool.connections) {
-      if (connData.connection === connection) {
-        usedEndpoint = connData.endpoint;
-        break;
-      }
-    }
-    
-    const publicKey = new PublicKey(address);
-    const balance = await connection.getBalance(publicKey);
-    
-    // Mark the endpoint as successful
-    if (usedEndpoint) {
-      connectionPool.markEndpointSuccess(usedEndpoint);
-    }
-    
-    return balance / LAMPORTS_PER_SOL;
-  } catch (error) {
-    // Mark the endpoint as failed
-    if (usedEndpoint) {
-      connectionPool.markEndpointFailed(usedEndpoint, error);
-    }
-    
-    logger.warn(`Error fetching balance with primary connection: ${error.message}, trying backup`);
-    
-    // Try only one backup endpoint
-    const backupEndpoint = 'https://api.mainnet-beta.solana.com';
-    
+  // Shuffle endpoints to distribute load
+  for (let i = endpoints.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [endpoints[i], endpoints[j]] = [endpoints[j], endpoints[i]];
+  }
+  
+  // Try each endpoint
+  for (const endpoint of endpoints) {
     try {
-      const backupConnection = new Connection(backupEndpoint, 'confirmed');
-      const balance = await backupConnection.getBalance(new PublicKey(address));
-      return balance / LAMPORTS_PER_SOL;
-    } catch (backupError) {
-      logger.error(`Backup endpoint failed: ${backupError.message}`);
-      return WALLET.DEFAULT_SOL_BALANCE;
+      const connection = new Connection(endpoint, 'confirmed');
+      const publicKey = new PublicKey(address);
+      balance = await connection.getBalance(publicKey);
+      
+      // Mark endpoint as successful
+      connectionPool.markEndpointSuccess(endpoint);
+      success = true;
+      break; // Exit loop on success
+    } catch (error) {
+      connectionPool.markEndpointFailed(endpoint, error);
+      logger.warn(`Error fetching balance with endpoint ${endpoint}: ${error.message}`);
+      // Continue to next endpoint
     }
   }
+  
+  // If all endpoints failed, try one more time with a direct fallback
+  if (!success) {
+    try {
+      const fallbackEndpoint = 'https://api.mainnet-beta.solana.com';
+      const fallbackConnection = new Connection(fallbackEndpoint, 'confirmed');
+      balance = await fallbackConnection.getBalance(new PublicKey(address));
+      logger.info(`Successfully retrieved balance using fallback endpoint`);
+    } catch (fallbackError) {
+      logger.error(`All endpoints failed for balance check: ${fallbackError.message}`);
+      // Return default balance
+    }
+  }
+  
+  return balance / LAMPORTS_PER_SOL;
 };
 
 // Get token information from Helius

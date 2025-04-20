@@ -7,6 +7,13 @@
  * The positionsHandler.js shows a simpler view for quicker access to basic position information.
  */
 
+const { Markup } = require('telegraf');
+const userService = require('../services/userService');
+const wallet = require('../../utils/wallet');
+const axios = require('axios');
+const { logger } = require('../database');
+const { updateOrSendMessage } = require('../../utils/messageUtils');
+
 // Handle positions
 const positionsHandler = async (ctx) => {
   try {
@@ -63,12 +70,9 @@ const positionsHandler = async (ctx) => {
       [Markup.button.callback('🔙 Back to Menu', 'refresh_data')]
     ]);
     
-    return ctx.reply(message, {
-      parse_mode: 'Markdown',
-      ...positionsKeyboard
-    });
+    return updateOrSendMessage(ctx, message, positionsKeyboard);
   } catch (error) {
-    console.error('Positions handler error:', error);
+    logger.error('Positions handler error:', error);
     return ctx.reply('Sorry, there was an error fetching your positions. Please try again later.');
   }
 };
@@ -114,7 +118,7 @@ const fetchTokenPositions = async (walletAddress) => {
       return b.balance - a.balance; // Sort by balance descending if values are equal
     });
   } catch (error) {
-    console.error('Error fetching token positions:', error);
+    logger.error('Error fetching token positions:', error);
     return [];
   }
 };
@@ -125,7 +129,7 @@ const refreshPositionsHandler = async (ctx) => {
     await ctx.answerCbQuery('Refreshing positions...');
     return positionsHandler(ctx);
   } catch (error) {
-    console.error('Refresh positions error:', error);
+    logger.error('Refresh positions error:', error);
     return ctx.reply('Sorry, there was an error refreshing your positions.');
   }
 };
@@ -140,7 +144,7 @@ const registerPositionsHandlers = (bot) => {
       await ctx.answerCbQuery();
       return ctx.scene.enter('startScene');
     } catch (error) {
-      console.error('Back to menu error:', error);
+      logger.error('Back to menu error:', error);
       return ctx.reply('Sorry, there was an error going back to the menu.');
     }
   });

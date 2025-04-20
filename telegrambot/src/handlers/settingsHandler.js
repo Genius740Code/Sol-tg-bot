@@ -4,6 +4,7 @@ const { logger } = require('../database');
 const { isRateLimited } = require('../../utils/wallet');
 const { encrypt, decrypt } = require('../../utils/encryption');
 const { walletSettingsHandler } = require('./wallet/walletSettingsHandler');
+const { updateOrSendMessage } = require('../../utils/messageUtils');
 
 // Fee constants
 const FEE_TYPES = {
@@ -31,34 +32,32 @@ const settingsHandler = async (ctx) => {
     const currentFeeType = user.settings?.tradingSettings?.feeType || 'FAST';
     const feePercentage = FEE_TYPES[currentFeeType].percentage;
 
-    await ctx.reply('⚙️ *Settings Menu*',
-      {
-        parse_mode: 'Markdown',
-        ...Markup.inlineKeyboard([
-          [
-            Markup.button.callback(`🔧 Fee: ${currentFeeType.toLowerCase()} (${feePercentage})`, 'tx_settings')
-          ],
-          [
-            Markup.button.callback('💰 Buy Settings', 'buy_settings'),
-            Markup.button.callback('💸 Sell Settings', 'sell_settings')
-          ],
-          [
-            Markup.button.callback('🛡️ MEV Protection', 'mev_protection')
-          ],
-          [
-            Markup.button.callback('⚡ Presets', 'trading_presets'),
-            Markup.button.callback('✅ Confirm Trades', 'confirm_trades')
-          ],
-          [
-            Markup.button.callback('🔐 Account Security', 'account_security'),
-            Markup.button.callback('💤 AFK Mode', 'afk_mode')
-          ],
-          [
-            Markup.button.callback('🤖 Bot Clicks', 'bot_clicks')
-          ],
-          [Markup.button.callback('🔙 Back to Menu', 'refresh_data')]
-        ])
-      }
+    await updateOrSendMessage(ctx, 
+      '⚙️ *Settings Menu*',
+      Markup.inlineKeyboard([
+        [
+          Markup.button.callback(`🔧 Fee: ${currentFeeType.toLowerCase()} (${feePercentage})`, 'tx_settings')
+        ],
+        [
+          Markup.button.callback('💰 Buy Settings', 'buy_settings'),
+          Markup.button.callback('💸 Sell Settings', 'sell_settings')
+        ],
+        [
+          Markup.button.callback('🛡️ MEV Protection', 'mev_protection')
+        ],
+        [
+          Markup.button.callback('⚡ Presets', 'trading_presets'),
+          Markup.button.callback('✅ Confirm Trades', 'confirm_trades')
+        ],
+        [
+          Markup.button.callback('🔐 Account Security', 'account_security'),
+          Markup.button.callback('💤 AFK Mode', 'afk_mode')
+        ],
+        [
+          Markup.button.callback('🤖 Bot Clicks', 'bot_clicks')
+        ],
+        [Markup.button.callback('🔙 Back to Menu', 'refresh_data')]
+      ])
     );
   } catch (error) {
     logger.error(`Settings handler error: ${error.message}`);
@@ -85,27 +84,25 @@ const txSettingsHandler = async (ctx) => {
     const buyTip = user.settings?.tradingSettings?.buyTip || 0.001;
     const sellTip = user.settings?.tradingSettings?.sellTip || 0.001;
     
-    await ctx.reply(
+    await updateOrSendMessage(
+      ctx,
       `🔧 *Fee Settings*\n\n` +
       `Current Fee Type: ${FEE_TYPES[currentFeeType].name} (${FEE_TYPES[currentFeeType].percentage})\n\n` +
       `Buy Tip: ${buyTip}\n` +
       `Sell Tip: ${sellTip}\n\n` +
       `Select a transaction fee type:`,
-      {
-        parse_mode: 'Markdown',
-        ...Markup.inlineKeyboard([
-          [
-            Markup.button.callback(`Fast (${FEE_TYPES.FAST.percentage})`, 'fee_FAST'),
-            Markup.button.callback(`Turbo (${FEE_TYPES.TURBO.percentage})`, 'fee_TURBO')
-          ],
-          [Markup.button.callback(`Custom Fee`, 'fee_CUSTOM')],
-          [
-            Markup.button.callback(`Buy Tip: ${buyTip}`, 'set_buy_tip'),
-            Markup.button.callback(`Sell Tip: ${sellTip}`, 'set_sell_tip')
-          ],
-          [Markup.button.callback('⬅️ Back to Settings', 'settings')]
-        ])
-      }
+      Markup.inlineKeyboard([
+        [
+          Markup.button.callback(`Fast (${FEE_TYPES.FAST.percentage})`, 'fee_FAST'),
+          Markup.button.callback(`Turbo (${FEE_TYPES.TURBO.percentage})`, 'fee_TURBO')
+        ],
+        [Markup.button.callback(`Custom Fee`, 'fee_CUSTOM')],
+        [
+          Markup.button.callback(`Buy Tip: ${buyTip}`, 'set_buy_tip'),
+          Markup.button.callback(`Sell Tip: ${sellTip}`, 'set_sell_tip')
+        ],
+        [Markup.button.callback('⬅️ Back to Settings', 'settings')]
+      ])
     );
   } catch (error) {
     logger.error(`Transaction settings error: ${error.message}`);

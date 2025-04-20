@@ -2,6 +2,7 @@ const { Markup } = require('telegraf');
 const userService = require('../services/userService');
 const { getTokenInfo } = require('../../utils/wallet');
 const { logger } = require('../database');
+const { updateOrSendMessage } = require('../../utils/messageUtils');
 
 // Show user limit orders
 const limitOrdersHandler = async (ctx) => {
@@ -15,16 +16,14 @@ const limitOrdersHandler = async (ctx) => {
     
     // If no limit orders
     if (!user.limitOrders || user.limitOrders.length === 0) {
-      return ctx.reply(
+      return updateOrSendMessage(
+        ctx,
         '📝 *Your Limit Orders*\n\n' +
         'You have no active limit orders.\n\n' +
         'To create a limit order, use the Buy or Sell options and select the limit order option.',
-        {
-          parse_mode: 'Markdown',
-          ...Markup.inlineKeyboard([
-            [Markup.button.callback('🔙 Back to Menu', 'refresh_data')]
-          ])
-        }
+        Markup.inlineKeyboard([
+          [Markup.button.callback('🔙 Back to Menu', 'refresh_data')]
+        ])
       );
     }
     
@@ -75,11 +74,8 @@ const limitOrdersHandler = async (ctx) => {
     // Add back button
     buttons.push([Markup.button.callback('🔙 Back to Menu', 'refresh_data')]);
     
-    // Send limit orders message
-    return ctx.reply(message, {
-      parse_mode: 'Markdown',
-      ...Markup.inlineKeyboard(buttons)
-    });
+    // Use updateOrSendMessage instead of ctx.reply
+    return updateOrSendMessage(ctx, message, Markup.inlineKeyboard(buttons));
   } catch (error) {
     logger.error(`Limit orders handler error: ${error.message}`);
     return ctx.reply('Sorry, something went wrong. Please try again later.');
@@ -100,7 +96,7 @@ const cancelOrderHandler = async (ctx, orderId) => {
     const orderIndex = user.limitOrders.findIndex(o => o._id.toString() === orderId);
     
     if (orderIndex === -1) {
-      return ctx.reply('Order not found');
+      return updateOrSendMessage(ctx, 'Order not found', {});
     }
     
     // Update order status
@@ -108,7 +104,7 @@ const cancelOrderHandler = async (ctx, orderId) => {
     await user.save();
     
     // Confirm cancellation
-    await ctx.reply('✅ Limit order has been cancelled.');
+    await updateOrSendMessage(ctx, '✅ Limit order has been cancelled.', {});
     
     // Show updated orders
     return limitOrdersHandler(ctx);
@@ -121,15 +117,19 @@ const cancelOrderHandler = async (ctx, orderId) => {
 // Create a new order (placeholder)
 const createOrderHandler = async (ctx, type) => {
   try {
-    await ctx.reply(
-      `To create a ${type} limit order, please enter the token address you want to ${type}.`
+    await updateOrSendMessage(
+      ctx,
+      `To create a ${type} limit order, please enter the token address you want to ${type}.`,
+      {}
     );
     
     // This is where you would enter a scene/state to collect token, amount, and price
     // For now, just show a placeholder message
     
-    await ctx.reply(
-      `This feature is still under implementation. Check back later!`
+    await updateOrSendMessage(
+      ctx,
+      `This feature is still under implementation. Check back later!`,
+      {}
     );
     
     return limitOrdersHandler(ctx);

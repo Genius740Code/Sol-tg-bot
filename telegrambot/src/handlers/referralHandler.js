@@ -3,6 +3,7 @@ const userService = require('../services/userService');
 const { logger } = require('../database');
 const { isRateLimited } = require('../../utils/wallet');
 const { FEES, MESSAGE } = require('../../../config/constants');
+const { updateOrSendMessage } = require('../../utils/messageUtils');
 
 // Helper function to properly escape special characters for Markdown
 const escapeMarkdown = (text) => {
@@ -84,12 +85,8 @@ const referralHandler = async (ctx) => {
       [Markup.button.callback('🔙 Back to Menu', 'refresh_data')]
     ]);
     
-    // Send referral information
-    return ctx.reply(message, {
-      parse_mode: 'Markdown', // Use standard Markdown instead of MarkdownV2
-      disable_web_page_preview: true,
-      ...referralKeyboard
-    });
+    // Use updateOrSendMessage instead of ctx.reply to update existing message
+    return updateOrSendMessage(ctx, message, referralKeyboard);
     
   } catch (error) {
     logger.error(`Referral handler error: ${error.message}`);

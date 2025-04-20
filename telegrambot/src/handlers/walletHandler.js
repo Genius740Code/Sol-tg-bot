@@ -3,6 +3,7 @@ const userService = require('../services/userService');
 const { logger } = require('../database');
 const { generateWallet, importWalletFromPrivateKey, getSolBalance, getSolPrice } = require('../../utils/wallet');
 const { encrypt, decrypt } = require('../../utils/encryption');
+const { updateOrSendMessage } = require('../../utils/messageUtils');
 
 // Wallet management handler
 const walletManagementHandler = async (ctx) => {
@@ -75,12 +76,8 @@ const walletManagementHandler = async (ctx) => {
       Markup.button.callback('🔙 Back to Menu', 'refresh_data')
     ]);
     
-    // Send message with keyboard
-    return ctx.reply(message, {
-      parse_mode: 'Markdown',
-      disable_web_page_preview: true,
-      ...Markup.inlineKeyboard(buttons)
-    });
+    // Use updateOrSendMessage instead of ctx.reply
+    return updateOrSendMessage(ctx, message, Markup.inlineKeyboard(buttons));
   } catch (error) {
     logger.error(`Wallet management error: ${error.message}`);
     return ctx.reply('Sorry, there was an error accessing wallet management. Please try again later.');
