@@ -577,25 +577,369 @@ const setSellTipHandler = async (ctx) => {
 // Buy settings handler
 const buySettingsHandler = async (ctx) => {
   try {
-    await ctx.answerCbQuery('Buy settings feature coming soon');
+    await ctx.answerCbQuery();
     
-    // Just return to main settings for now
-    return settingsHandler(ctx);
+    // Get user
+    const user = await userService.getUserByTelegramId(ctx.from.id);
+    
+    if (!user) {
+      return ctx.reply('Please start the bot first by sending /start');
+    }
+    
+    // Get current buy settings or set defaults
+    const buySettings = user.settings?.tradingSettings?.buySettings || {
+      defaultAmount: 0.5,
+      customAmounts: [0.5, 1, 2, 5, 10],
+      autoSell: false,
+      takeProfit: null,
+      stopLoss: null
+    };
+    
+    // Create keyboard with buy amount options
+    const buyAmountButtons = [];
+    const amounts = buySettings.customAmounts || [0.5, 1, 2, 5, 10];
+    
+    // Split amounts into pairs for the keyboard
+    for (let i = 0; i < amounts.length; i += 2) {
+      const row = [];
+      
+      // First button in the row
+      const amount1 = amounts[i];
+      const isDefault1 = amount1 === buySettings.defaultAmount;
+      row.push(Markup.button.callback(
+        `${isDefault1 ? '✅ ' : ''}${amount1} SOL`, 
+        `buy_amount_${amount1}`
+      ));
+      
+      // Second button if exists
+      if (i + 1 < amounts.length) {
+        const amount2 = amounts[i + 1];
+        const isDefault2 = amount2 === buySettings.defaultAmount;
+        row.push(Markup.button.callback(
+          `${isDefault2 ? '✅ ' : ''}${amount2} SOL`, 
+          `buy_amount_${amount2}`
+        ));
+      }
+      
+      buyAmountButtons.push(row);
+    }
+    
+    // Add custom amount option
+    buyAmountButtons.push([
+      Markup.button.callback('➕ Custom Amount', 'buy_amount_custom')
+    ]);
+    
+    // Add auto sell toggle button
+    const autoSellStatus = buySettings.autoSell ? '🟢 ON' : '🔴 OFF';
+    buyAmountButtons.push([
+      Markup.button.callback(`Auto Sell: ${autoSellStatus}`, 'toggle_auto_sell')
+    ]);
+    
+    // Add TP/SL buttons if auto sell is enabled
+    if (buySettings.autoSell) {
+      buyAmountButtons.push([
+        Markup.button.callback(`TP: ${buySettings.takeProfit ? buySettings.takeProfit + '%' : 'Not Set'}`, 'set_buy_tp'),
+        Markup.button.callback(`SL: ${buySettings.stopLoss ? buySettings.stopLoss + '%' : 'Not Set'}`, 'set_buy_sl')
+      ]);
+    }
+    
+    // Add back button
+    buyAmountButtons.push([
+      Markup.button.callback('🔄 Refresh', 'buy_settings'),
+      Markup.button.callback('🔙 Back', 'settings')
+    ]);
+    
+    const buySettingsKeyboard = Markup.inlineKeyboard(buyAmountButtons);
+    
+    // Create message text
+    let message = '💰 *Buy Settings*\n\n';
+    message += `Default Buy Amount: ${buySettings.defaultAmount} SOL\n\n`;
+    message += 'Select an amount to set as default for all buys. ✅ indicates your current default.\n\n';
+    
+    if (buySettings.autoSell) {
+      message += '🔄 *Auto Sell:* Enabled\n';
+      
+      if (buySettings.takeProfit) {
+        message += `📈 Take Profit: ${buySettings.takeProfit}%\n`;
+      }
+      
+      if (buySettings.stopLoss) {
+        message += `📉 Stop Loss: ${buySettings.stopLoss}%\n`;
+      }
+    } else {
+      message += '🔄 *Auto Sell:* Disabled\n';
+    }
+    
+    await updateOrSendMessage(ctx, message, buySettingsKeyboard);
   } catch (error) {
-    logger.error(`Buy settings error: ${error.message}`);
-    ctx.reply('Sorry, there was an error. Please try again later.');
+    logger.error(`Buy settings handler error: ${error.message}`);
+    ctx.reply('Sorry, there was an error accessing buy settings. Please try again later.');
   }
 };
 
 // Sell settings handler
 const sellSettingsHandler = async (ctx) => {
   try {
-    await ctx.answerCbQuery('Sell settings feature coming soon');
+    await ctx.answerCbQuery();
     
-    // Just return to main settings for now
-    return settingsHandler(ctx);
+    // Get user
+    const user = await userService.getUserByTelegramId(ctx.from.id);
+    
+    if (!user) {
+      return ctx.reply('Please start the bot first by sending /start');
+    }
+    
+    // Get current sell settings or set defaults
+    const sellSettings = user.settings?.tradingSettings?.sellSettings || {
+      defaultPercentage: 100,
+      percentageOptions: [25, 50, 100],
+      takeProfit: null,
+      stopLoss: null,
+      devSell: false
+    };
+    
+    // Create keyboard with sell percentage options
+    const sellPctButtons = [];
+    const percentages = sellSettings.percentageOptions || [25, 50, 100];
+    
+    // Create a row for percentage options
+    const percentageRow = percentages.map(pct => {
+      const isDefault = pct === sellSettings.defaultPercentage;
+      return Markup.button.callback(
+        `${isDefault ? '✅ ' : ''}${pct}%`, 
+        `sell_pct_${pct}`
+      );
+    });
+    
+    sellPctButtons.push(percentageRow);
+    
+    // Add custom percentage option
+    sellPctButtons.push([
+      Markup.button.callback('➕ Custom Percentage', 'sell_pct_custom')
+    ]);
+    
+    // Add DEV sell toggle
+    const devSellStatus = sellSettings.devSell ? '🟢 ON' : '🔴 OFF';
+    sellPctButtons.push([
+      Markup.button.callback(`DEV Sell: ${devSellStatus}`, 'toggle_dev_sell')
+    ]);
+    
+    // Add TP/SL buttons
+    sellPctButtons.push([
+      Markup.button.callback(`TP: ${sellSettings.takeProfit ? sellSettings.takeProfit + '%' : 'Not Set'}`, 'set_sell_tp'),
+      Markup.button.callback(`SL: ${sellSettings.stopLoss ? sellSettings.stopLoss + '%' : 'Not Set'}`, 'set_sell_sl')
+    ]);
+    
+    // Add back button
+    sellPctButtons.push([
+      Markup.button.callback('🔄 Refresh', 'sell_settings'),
+      Markup.button.callback('🔙 Back', 'settings')
+    ]);
+    
+    const sellSettingsKeyboard = Markup.inlineKeyboard(sellPctButtons);
+    
+    // Create message text
+    let message = '💸 *Sell Settings*\n\n';
+    message += `Default Sell Percentage: ${sellSettings.defaultPercentage}%\n\n`;
+    message += 'Select a percentage to set as default for all sells. ✅ indicates your current default.\n\n';
+    
+    message += `👨‍💻 DEV Sell: ${sellSettings.devSell ? '🟢 Enabled' : '🔴 Disabled'}\n`;
+    
+    if (sellSettings.takeProfit) {
+      message += `📈 Take Profit: ${sellSettings.takeProfit}%\n`;
+    }
+    
+    if (sellSettings.stopLoss) {
+      message += `📉 Stop Loss: ${sellSettings.stopLoss}%\n`;
+    }
+    
+    await updateOrSendMessage(ctx, message, sellSettingsKeyboard);
   } catch (error) {
-    logger.error(`Sell settings error: ${error.message}`);
+    logger.error(`Sell settings handler error: ${error.message}`);
+    ctx.reply('Sorry, there was an error accessing sell settings. Please try again later.');
+  }
+};
+
+// Set buy amount handler
+const setBuyAmountHandler = async (ctx, amount) => {
+  try {
+    await ctx.answerCbQuery(`Setting default buy amount to ${amount} SOL`);
+    
+    // Update user's buy settings
+    await userService.updateUserSettings(ctx.from.id, {
+      'settings.tradingSettings.buySettings.defaultAmount': parseFloat(amount)
+    });
+    
+    // Refresh the buy settings page
+    return buySettingsHandler(ctx);
+  } catch (error) {
+    logger.error(`Set buy amount error: ${error.message}`);
+    ctx.reply('Sorry, there was an error updating your buy settings. Please try again later.');
+  }
+};
+
+// Set sell percentage handler
+const setSellPercentageHandler = async (ctx, percentage) => {
+  try {
+    await ctx.answerCbQuery(`Setting default sell percentage to ${percentage}%`);
+    
+    // Update user's sell settings
+    await userService.updateUserSettings(ctx.from.id, {
+      'settings.tradingSettings.sellSettings.defaultPercentage': parseInt(percentage)
+    });
+    
+    // Refresh the sell settings page
+    return sellSettingsHandler(ctx);
+  } catch (error) {
+    logger.error(`Set sell percentage error: ${error.message}`);
+    ctx.reply('Sorry, there was an error updating your sell settings. Please try again later.');
+  }
+};
+
+// Toggle auto sell
+const toggleAutoSellHandler = async (ctx) => {
+  try {
+    // Get current user settings
+    const user = await userService.getUserByTelegramId(ctx.from.id);
+    if (!user) {
+      return ctx.reply('Please start the bot first by sending /start');
+    }
+    
+    const currentSetting = user.settings?.tradingSettings?.buySettings?.autoSell || false;
+    
+    // Toggle the setting
+    await userService.updateUserSettings(ctx.from.id, {
+      'settings.tradingSettings.buySettings.autoSell': !currentSetting
+    });
+    
+    await ctx.answerCbQuery(`Auto sell ${!currentSetting ? 'enabled' : 'disabled'}`);
+    
+    // Refresh the buy settings page
+    return buySettingsHandler(ctx);
+  } catch (error) {
+    logger.error(`Toggle auto sell error: ${error.message}`);
+    ctx.reply('Sorry, there was an error updating your settings. Please try again later.');
+  }
+};
+
+// Toggle DEV sell
+const toggleDevSellHandler = async (ctx) => {
+  try {
+    // Get current user settings
+    const user = await userService.getUserByTelegramId(ctx.from.id);
+    if (!user) {
+      return ctx.reply('Please start the bot first by sending /start');
+    }
+    
+    const currentSetting = user.settings?.tradingSettings?.sellSettings?.devSell || false;
+    
+    // Toggle the setting
+    await userService.updateUserSettings(ctx.from.id, {
+      'settings.tradingSettings.sellSettings.devSell': !currentSetting
+    });
+    
+    await ctx.answerCbQuery(`DEV sell ${!currentSetting ? 'enabled' : 'disabled'}`);
+    
+    // Refresh the sell settings page
+    return sellSettingsHandler(ctx);
+  } catch (error) {
+    logger.error(`Toggle DEV sell error: ${error.message}`);
+    ctx.reply('Sorry, there was an error updating your settings. Please try again later.');
+  }
+};
+
+// Set take profit for buy
+const setBuyTakeProfitHandler = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    
+    // Set user state for input
+    await userService.updateUserState(ctx.from.id, {
+      state: 'SETTING_BUY_TP',
+      stateData: null
+    });
+    
+    await ctx.reply(
+      '📈 *Set Take Profit*\n\n' +
+      'Enter the percentage increase at which you want to automatically sell for profit.\n\n' +
+      'For example, enter `20` to sell when the price increases by 20%.\n\n' +
+      'Send 0 to disable Take Profit.',
+      { parse_mode: 'Markdown' }
+    );
+  } catch (error) {
+    logger.error(`Set buy take profit error: ${error.message}`);
+    ctx.reply('Sorry, there was an error. Please try again later.');
+  }
+};
+
+// Set stop loss for buy
+const setBuyStopLossHandler = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    
+    // Set user state for input
+    await userService.updateUserState(ctx.from.id, {
+      state: 'SETTING_BUY_SL',
+      stateData: null
+    });
+    
+    await ctx.reply(
+      '📉 *Set Stop Loss*\n\n' +
+      'Enter the percentage decrease at which you want to automatically sell to limit losses.\n\n' +
+      'For example, enter `10` to sell when the price decreases by 10%.\n\n' +
+      'Send 0 to disable Stop Loss.',
+      { parse_mode: 'Markdown' }
+    );
+  } catch (error) {
+    logger.error(`Set buy stop loss error: ${error.message}`);
+    ctx.reply('Sorry, there was an error. Please try again later.');
+  }
+};
+
+// Set take profit for sell
+const setSellTakeProfitHandler = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    
+    // Set user state for input
+    await userService.updateUserState(ctx.from.id, {
+      state: 'SETTING_SELL_TP',
+      stateData: null
+    });
+    
+    await ctx.reply(
+      '📈 *Set Take Profit*\n\n' +
+      'Enter the percentage increase at which you want to automatically sell for profit.\n\n' +
+      'For example, enter `20` to sell when the price increases by 20%.\n\n' +
+      'Send 0 to disable Take Profit.',
+      { parse_mode: 'Markdown' }
+    );
+  } catch (error) {
+    logger.error(`Set sell take profit error: ${error.message}`);
+    ctx.reply('Sorry, there was an error. Please try again later.');
+  }
+};
+
+// Set stop loss for sell
+const setSellStopLossHandler = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    
+    // Set user state for input
+    await userService.updateUserState(ctx.from.id, {
+      state: 'SETTING_SELL_SL',
+      stateData: null
+    });
+    
+    await ctx.reply(
+      '📉 *Set Stop Loss*\n\n' +
+      'Enter the percentage decrease at which you want to automatically sell to limit losses.\n\n' +
+      'For example, enter `10` to sell when the price decreases by 10%.\n\n' +
+      'Send 0 to disable Stop Loss.',
+      { parse_mode: 'Markdown' }
+    );
+  } catch (error) {
+    logger.error(`Set sell stop loss error: ${error.message}`);
     ctx.reply('Sorry, there was an error. Please try again later.');
   }
 };
@@ -655,14 +999,406 @@ const accountSecurityHandler = async (ctx) => {
 // AFK mode handler
 const afkModeHandler = async (ctx) => {
   try {
-    await ctx.answerCbQuery('AFK mode coming soon');
+    await ctx.answerCbQuery();
     
-    // Just return to main settings for now
-    return settingsHandler(ctx);
+    // Get user data
+    const user = await userService.getUserByTelegramId(ctx.from.id);
+    if (!user) {
+      return ctx.reply('Please start the bot first by sending /start');
+    }
+    
+    // Create AFK mode keyboard
+    const afkKeyboard = Markup.inlineKeyboard([
+      [
+        Markup.button.callback('➕ Add New Config', 'afk_add_config')
+      ],
+      [
+        Markup.button.callback('⏸️ Pause All', 'afk_pause_all'),
+        Markup.button.callback('▶️ Start All', 'afk_start_all')
+      ],
+      [
+        Markup.button.callback('🔄 Refresh', 'afk_refresh')
+      ],
+      [
+        Markup.button.callback('🔙 Back', 'settings')
+      ]
+    ]);
+    
+    // Format AFK mode status message
+    let message = '💤 *AFK Mode Settings*\n\n';
+    
+    // Check if user has any AFK configs
+    const afkConfigs = user.settings?.afkMode?.configs || [];
+    
+    if (afkConfigs.length > 0) {
+      message += 'Your active configurations:\n\n';
+      
+      afkConfigs.forEach((config, index) => {
+        const statusEmoji = config.active ? '🟢' : '🔴';
+        message += `${index + 1}. ${statusEmoji} ${config.name}\n`;
+        message += `   Type: ${config.type} | Token: ${config.tokenSymbol || 'Any'}\n`;
+        
+        if (config.type === 'buy') {
+          message += `   Amount: ${config.amount} SOL | Slippage: ${config.slippage}%\n`;
+        } else if (config.type === 'sell') {
+          message += `   Percentage: ${config.percentage}% | TP: ${config.takeProfit || 'Off'} | SL: ${config.stopLoss || 'Off'}\n`;
+        }
+        
+        message += `   Created: ${new Date(config.createdAt).toLocaleString()}\n\n`;
+      });
+    } else {
+      message += 'You don\'t have any AFK configurations yet. Use "Add New Config" to create one.\n\n';
+      message += 'AFK Mode allows the bot to automatically buy or sell tokens based on your predefined settings while you\'re away.';
+    }
+    
+    // Update or send message
+    await updateOrSendMessage(ctx, message, afkKeyboard);
   } catch (error) {
-    logger.error(`AFK mode error: ${error.message}`);
+    logger.error(`AFK mode handler error: ${error.message}`);
+    ctx.reply('Sorry, there was an error accessing AFK mode settings. Please try again later.');
+  }
+};
+
+// Add new AFK config handler
+const afkAddConfigHandler = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    
+    // Show config type selection
+    const configTypeKeyboard = Markup.inlineKeyboard([
+      [
+        Markup.button.callback('💰 Buy Settings', 'afk_config_buy'),
+        Markup.button.callback('💸 Sell Settings', 'afk_config_sell')
+      ],
+      [
+        Markup.button.callback('🔙 Back to AFK Mode', 'afk_mode')
+      ]
+    ]);
+    
+    await updateOrSendMessage(ctx, 
+      '➕ *Create New AFK Configuration*\n\n' +
+      'Select the type of configuration you want to create:',
+      configTypeKeyboard
+    );
+  } catch (error) {
+    logger.error(`AFK add config error: ${error.message}`);
     ctx.reply('Sorry, there was an error. Please try again later.');
   }
+};
+
+// AFK buy config handler
+const afkConfigBuyHandler = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    
+    // Get user data
+    const user = await userService.getUserByTelegramId(ctx.from.id);
+    if (!user) {
+      return ctx.reply('Please start the bot first by sending /start');
+    }
+    
+    // Show buy amount options
+    const buyAmountKeyboard = Markup.inlineKeyboard([
+      [
+        Markup.button.callback('0.5 SOL', 'afk_buy_amount_0.5'),
+        Markup.button.callback('1 SOL', 'afk_buy_amount_1')
+      ],
+      [
+        Markup.button.callback('2 SOL', 'afk_buy_amount_2'),
+        Markup.button.callback('5 SOL', 'afk_buy_amount_5')
+      ],
+      [
+        Markup.button.callback('10 SOL', 'afk_buy_amount_10'),
+        Markup.button.callback('Custom', 'afk_buy_amount_custom')
+      ],
+      [
+        Markup.button.callback('🔙 Back', 'afk_add_config')
+      ]
+    ]);
+    
+    await updateOrSendMessage(ctx, 
+      '💰 *AFK Buy Configuration*\n\n' +
+      'Select the amount of SOL to use for each buy:',
+      buyAmountKeyboard
+    );
+  } catch (error) {
+    logger.error(`AFK buy config error: ${error.message}`);
+    ctx.reply('Sorry, there was an error. Please try again later.');
+  }
+};
+
+// AFK sell config handler
+const afkConfigSellHandler = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    
+    // Get user data
+    const user = await userService.getUserByTelegramId(ctx.from.id);
+    if (!user) {
+      return ctx.reply('Please start the bot first by sending /start');
+    }
+    
+    // Show sell percentage options
+    const sellPercentageKeyboard = Markup.inlineKeyboard([
+      [
+        Markup.button.callback('25%', 'afk_sell_pct_25'),
+        Markup.button.callback('50%', 'afk_sell_pct_50'),
+        Markup.button.callback('100%', 'afk_sell_pct_100')
+      ],
+      [
+        Markup.button.callback('Custom %', 'afk_sell_pct_custom')
+      ],
+      [
+        Markup.button.callback('🔙 Back', 'afk_add_config')
+      ]
+    ]);
+    
+    await updateOrSendMessage(ctx, 
+      '💸 *AFK Sell Configuration*\n\n' +
+      'Select the percentage of tokens to sell:',
+      sellPercentageKeyboard
+    );
+  } catch (error) {
+    logger.error(`AFK sell config error: ${error.message}`);
+    ctx.reply('Sorry, there was an error. Please try again later.');
+  }
+};
+
+// Handle AFK refresh
+const afkRefreshHandler = async (ctx) => {
+  try {
+    await ctx.answerCbQuery('Refreshing AFK configurations...');
+    return afkModeHandler(ctx);
+  } catch (error) {
+    logger.error(`AFK refresh error: ${error.message}`);
+    return ctx.reply('Sorry, there was an error refreshing AFK settings. Please try again later.');
+  }
+};
+
+// Handle AFK pause all
+const afkPauseAllHandler = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    
+    // Get user data
+    const user = await userService.getUserByTelegramId(ctx.from.id);
+    if (!user) {
+      return ctx.reply('Please start the bot first by sending /start');
+    }
+    
+    // Update all configs to inactive
+    await userService.updateUserSettings(ctx.from.id, {
+      'settings.afkMode.configs.$[].active': false
+    });
+    
+    await ctx.reply('✅ All AFK configurations have been paused.');
+    
+    // Refresh the AFK mode menu
+    return afkModeHandler(ctx);
+  } catch (error) {
+    logger.error(`AFK pause all error: ${error.message}`);
+    return ctx.reply('Sorry, there was an error pausing configurations. Please try again later.');
+  }
+};
+
+// Handle AFK start all
+const afkStartAllHandler = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    
+    // Get user data
+    const user = await userService.getUserByTelegramId(ctx.from.id);
+    if (!user) {
+      return ctx.reply('Please start the bot first by sending /start');
+    }
+    
+    // Update all configs to active
+    await userService.updateUserSettings(ctx.from.id, {
+      'settings.afkMode.configs.$[].active': true
+    });
+    
+    await ctx.reply('✅ All AFK configurations have been activated.');
+    
+    // Refresh the AFK mode menu
+    return afkModeHandler(ctx);
+  } catch (error) {
+    logger.error(`AFK start all error: ${error.message}`);
+    return ctx.reply('Sorry, there was an error activating configurations. Please try again later.');
+  }
+};
+
+// Handle AFK buy/sell amount selection
+const afkBuyAmountHandler = async (ctx, match) => {
+  try {
+    await ctx.answerCbQuery();
+    
+    // Extract amount from the callback data
+    const amount = match[1];
+    
+    // Store in user state for next step
+    await userService.updateUserState(ctx.from.id, {
+      state: 'AFK_CONFIG_BUY',
+      stateData: { amount }
+    });
+    
+    // Show auto-sell options
+    const autoSellKeyboard = Markup.inlineKeyboard([
+      [
+        Markup.button.callback('Auto Sell: ON', 'afk_auto_sell_on'),
+        Markup.button.callback('Auto Sell: OFF', 'afk_auto_sell_off')
+      ],
+      [
+        Markup.button.callback('🔙 Back', 'afk_config_buy')
+      ]
+    ]);
+    
+    await updateOrSendMessage(ctx, 
+      `💰 *AFK Buy Configuration*\n\n` +
+      `Amount: ${amount} SOL\n\n` +
+      `Would you like to enable automatic selling after buying?`,
+      autoSellKeyboard
+    );
+  } catch (error) {
+    logger.error(`AFK buy amount handler error: ${error.message}`);
+    ctx.reply('Sorry, there was an error. Please try again later.');
+  }
+};
+
+// Handle AFK sell percentage selection
+const afkSellPercentageHandler = async (ctx, match) => {
+  try {
+    await ctx.answerCbQuery();
+    
+    // Extract percentage from the callback data
+    const percentage = match[1];
+    
+    // Store in user state for next step
+    await userService.updateUserState(ctx.from.id, {
+      state: 'AFK_CONFIG_SELL',
+      stateData: { percentage }
+    });
+    
+    // Show take profit / stop loss options
+    const tpSlKeyboard = Markup.inlineKeyboard([
+      [
+        Markup.button.callback('Set Take Profit', 'afk_set_tp'),
+        Markup.button.callback('Set Stop Loss', 'afk_set_sl')
+      ],
+      [
+        Markup.button.callback('Skip (No TP/SL)', 'afk_complete_sell_config')
+      ],
+      [
+        Markup.button.callback('🔙 Back', 'afk_config_sell')
+      ]
+    ]);
+    
+    await updateOrSendMessage(ctx, 
+      `💸 *AFK Sell Configuration*\n\n` +
+      `Sell percentage: ${percentage}%\n\n` +
+      `Would you like to set Take Profit or Stop Loss levels?`,
+      tpSlKeyboard
+    );
+  } catch (error) {
+    logger.error(`AFK sell percentage handler error: ${error.message}`);
+    ctx.reply('Sorry, there was an error. Please try again later.');
+  }
+};
+
+// Save AFK Buy Config
+const afkSaveBuyConfigHandler = async (ctx, autoSell) => {
+  try {
+    await ctx.answerCbQuery();
+    
+    // Get user data and state
+    const user = await userService.getUserByTelegramId(ctx.from.id);
+    if (!user || !user.state || user.state !== 'AFK_CONFIG_BUY' || !user.stateData) {
+      return ctx.reply('Configuration session expired. Please try again.');
+    }
+    
+    // Get the amount from state data
+    const { amount } = user.stateData;
+    
+    // Create new AFK config
+    const newConfig = {
+      type: 'buy',
+      name: `Buy ${amount} SOL`,
+      amount: parseFloat(amount),
+      autoSell: autoSell,
+      slippage: 1.0, // Default slippage
+      active: true,
+      createdAt: new Date()
+    };
+    
+    // Add the config to user's settings
+    await userService.addAfkConfig(ctx.from.id, newConfig);
+    
+    // Clear user state
+    await userService.updateUserState(ctx.from.id, { state: null, stateData: null });
+    
+    // Show success message
+    await ctx.reply(`✅ AFK Buy configuration saved successfully.\n\nAmount: ${amount} SOL\nAuto-sell: ${autoSell ? 'ON' : 'OFF'}`);
+    
+    // Return to AFK mode menu
+    return afkModeHandler(ctx);
+  } catch (error) {
+    logger.error(`AFK save buy config error: ${error.message}`);
+    return ctx.reply('Sorry, there was an error saving your configuration. Please try again later.');
+  }
+};
+
+// Save AFK Sell Config
+const afkSaveSellConfigHandler = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    
+    // Get user data and state
+    const user = await userService.getUserByTelegramId(ctx.from.id);
+    if (!user || !user.state || user.state !== 'AFK_CONFIG_SELL' || !user.stateData) {
+      return ctx.reply('Configuration session expired. Please try again.');
+    }
+    
+    // Get the percentage and TP/SL from state data
+    const { percentage, takeProfit, stopLoss } = user.stateData;
+    
+    // Create new AFK config
+    const newConfig = {
+      type: 'sell',
+      name: `Sell ${percentage}%`,
+      percentage: parseFloat(percentage),
+      takeProfit: takeProfit || null,
+      stopLoss: stopLoss || null,
+      active: true,
+      createdAt: new Date()
+    };
+    
+    // Add the config to user's settings
+    await userService.addAfkConfig(ctx.from.id, newConfig);
+    
+    // Clear user state
+    await userService.updateUserState(ctx.from.id, { state: null, stateData: null });
+    
+    // Show success message
+    let message = `✅ AFK Sell configuration saved successfully.\n\nPercentage: ${percentage}%`;
+    if (takeProfit) message += `\nTake Profit: ${takeProfit}%`;
+    if (stopLoss) message += `\nStop Loss: ${stopLoss}%`;
+    
+    await ctx.reply(message);
+    
+    // Return to AFK mode menu
+    return afkModeHandler(ctx);
+  } catch (error) {
+    logger.error(`AFK save sell config error: ${error.message}`);
+    return ctx.reply('Sorry, there was an error saving your configuration. Please try again later.');
+  }
+};
+
+// Auto sell handlers
+const afkAutoSellOnHandler = async (ctx) => {
+  return afkSaveBuyConfigHandler(ctx, true);
+};
+
+const afkAutoSellOffHandler = async (ctx) => {
+  return afkSaveBuyConfigHandler(ctx, false);
 };
 
 // Bot clicks handler
@@ -780,6 +1516,78 @@ const registerSettingsHandlers = (bot) => {
         
         await ctx.reply(`✅ Custom fee set to ${feeInput}`);
         return txSettingsHandler(ctx);
+      } else if (user.state === 'SETTING_BUY_TP') {
+        // Handle Buy TP input
+        const tpInput = parseFloat(ctx.message.text.trim());
+        
+        if (isNaN(tpInput) || tpInput < 0 || tpInput > 1000) {
+          await ctx.reply('Invalid take profit value. Please enter a number between 0 and 1000');
+          return;
+        }
+        
+        // Update take profit (0 means disable)
+        const tpValue = tpInput === 0 ? null : tpInput;
+        await userService.updateUserSettings(ctx.from.id, {
+          'settings.tradingSettings.buySettings.takeProfit': tpValue,
+          state: null
+        });
+        
+        await ctx.reply(`✅ Take profit ${tpValue ? `set to ${tpValue}%` : 'disabled'}`);
+        return buySettingsHandler(ctx);
+      } else if (user.state === 'SETTING_BUY_SL') {
+        // Handle Buy SL input
+        const slInput = parseFloat(ctx.message.text.trim());
+        
+        if (isNaN(slInput) || slInput < 0 || slInput > 100) {
+          await ctx.reply('Invalid stop loss value. Please enter a number between 0 and 100');
+          return;
+        }
+        
+        // Update stop loss (0 means disable)
+        const slValue = slInput === 0 ? null : slInput;
+        await userService.updateUserSettings(ctx.from.id, {
+          'settings.tradingSettings.buySettings.stopLoss': slValue,
+          state: null
+        });
+        
+        await ctx.reply(`✅ Stop loss ${slValue ? `set to ${slValue}%` : 'disabled'}`);
+        return buySettingsHandler(ctx);
+      } else if (user.state === 'SETTING_SELL_TP') {
+        // Handle Sell TP input
+        const tpInput = parseFloat(ctx.message.text.trim());
+        
+        if (isNaN(tpInput) || tpInput < 0 || tpInput > 1000) {
+          await ctx.reply('Invalid take profit value. Please enter a number between 0 and 1000');
+          return;
+        }
+        
+        // Update take profit (0 means disable)
+        const tpValue = tpInput === 0 ? null : tpInput;
+        await userService.updateUserSettings(ctx.from.id, {
+          'settings.tradingSettings.sellSettings.takeProfit': tpValue,
+          state: null
+        });
+        
+        await ctx.reply(`✅ Take profit ${tpValue ? `set to ${tpValue}%` : 'disabled'}`);
+        return sellSettingsHandler(ctx);
+      } else if (user.state === 'SETTING_SELL_SL') {
+        // Handle Sell SL input
+        const slInput = parseFloat(ctx.message.text.trim());
+        
+        if (isNaN(slInput) || slInput < 0 || slInput > 100) {
+          await ctx.reply('Invalid stop loss value. Please enter a number between 0 and 100');
+          return;
+        }
+        
+        // Update stop loss (0 means disable)
+        const slValue = slInput === 0 ? null : slInput;
+        await userService.updateUserSettings(ctx.from.id, {
+          'settings.tradingSettings.sellSettings.stopLoss': slValue,
+          state: null
+        });
+        
+        await ctx.reply(`✅ Stop loss ${slValue ? `set to ${slValue}%` : 'disabled'}`);
+        return sellSettingsHandler(ctx);
       }
       
       return next();
@@ -788,6 +1596,56 @@ const registerSettingsHandlers = (bot) => {
       return next();
     }
   });
+  
+  // AFK mode
+  bot.action('afk_mode', afkModeHandler);
+  bot.action('afk_add_config', afkAddConfigHandler);
+  bot.action('afk_config_buy', afkConfigBuyHandler);
+  bot.action('afk_config_sell', afkConfigSellHandler);
+  bot.action('afk_refresh', afkRefreshHandler);
+  bot.action('afk_pause_all', afkPauseAllHandler);
+  bot.action('afk_start_all', afkStartAllHandler);
+  
+  // AFK buy settings
+  bot.action(/afk_buy_amount_(.+)/, (ctx) => {
+    const match = /afk_buy_amount_(.+)/.exec(ctx.callbackQuery.data);
+    return afkBuyAmountHandler(ctx, match);
+  });
+  bot.action('afk_auto_sell_on', afkAutoSellOnHandler);
+  bot.action('afk_auto_sell_off', afkAutoSellOffHandler);
+  
+  // AFK sell settings
+  bot.action(/afk_sell_pct_(\d+)/, (ctx) => {
+    const match = /afk_sell_pct_(\d+)/.exec(ctx.callbackQuery.data);
+    return afkSellPercentageHandler(ctx, match);
+  });
+  bot.action('afk_complete_sell_config', afkSaveSellConfigHandler);
+  
+  // Buy settings
+  bot.action('buy_settings', buySettingsHandler);
+  bot.action(/buy_amount_([0-9.]+)/, (ctx) => {
+    const match = /buy_amount_([0-9.]+)/.exec(ctx.callbackQuery.data);
+    if (match && match[1]) {
+      return setBuyAmountHandler(ctx, match[1]);
+    }
+    return ctx.answerCbQuery('Invalid amount');
+  });
+  bot.action('toggle_auto_sell', toggleAutoSellHandler);
+  bot.action('set_buy_tp', setBuyTakeProfitHandler);
+  bot.action('set_buy_sl', setBuyStopLossHandler);
+  
+  // Sell settings
+  bot.action('sell_settings', sellSettingsHandler);
+  bot.action(/sell_pct_(\d+)/, (ctx) => {
+    const match = /sell_pct_(\d+)/.exec(ctx.callbackQuery.data);
+    if (match && match[1]) {
+      return setSellPercentageHandler(ctx, match[1]);
+    }
+    return ctx.answerCbQuery('Invalid percentage');
+  });
+  bot.action('toggle_dev_sell', toggleDevSellHandler);
+  bot.action('set_sell_tp', setSellTakeProfitHandler);
+  bot.action('set_sell_sl', setSellStopLossHandler);
 };
 
 module.exports = {
@@ -809,6 +1667,18 @@ module.exports = {
   confirmTradesHandler,
   accountSecurityHandler,
   afkModeHandler,
+  afkAddConfigHandler,
+  afkConfigBuyHandler,
+  afkConfigSellHandler,
+  afkRefreshHandler,
+  afkPauseAllHandler,
+  afkStartAllHandler,
+  afkBuyAmountHandler,
+  afkSellPercentageHandler,
+  afkSaveBuyConfigHandler,
+  afkAutoSellOnHandler,
+  afkAutoSellOffHandler,
+  afkSaveSellConfigHandler,
   botClicksHandler,
   createWalletHandler
 };

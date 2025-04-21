@@ -36,17 +36,12 @@ const refreshHandler = async (ctx) => {
     const cacheKey = `refresh_${userId}`;
     const now = Date.now();
     
-    // Check if we have recent cached data
-    const cachedData = refreshCache.get(cacheKey);
-    if (cachedData && now - cachedData.timestamp < REFRESH_CACHE_TTL) {
-      // Use cached data and return immediately for a fast response
-      await sendRefreshMessage(ctx, cachedData.data, chatId, messageId);
-      
-      // Optionally update data in background for next refresh
-      updateCacheInBackground(userId, cacheKey);
-      return;
-    }
-
+    // Always start the SOL price request immediately for faster response
+    const solPricePromise = getSolPrice().catch(error => {
+      logger.error(`Error fetching SOL price: ${error.message}`);
+      return FEES.DEFAULT_SOL_PRICE || 100;
+    });
+    
     // Get user data
     const user = await userService.getUserByTelegramId(userId);
     if (!user) {
@@ -72,6 +67,9 @@ const refreshHandler = async (ctx) => {
       walletAddress = user.walletAddress || 'Wallet not available';
     }
     
+    // Check if we have recent cached data
+    const cachedData = refreshCache.get(cacheKey);
+    
     // Prepare initial data with placeholder values
     const refreshData = {
       user,
@@ -83,37 +81,46 @@ const refreshHandler = async (ctx) => {
       referralCount: user.referrals ? user.referrals.length : 0
     };
     
-    // First, do a quick check if we have partial cached data
-    const partialCache = refreshCache.get(cacheKey);
-    if (partialCache) {
+    // Use cached values if they're recent (last 30 seconds)
+    if (cachedData && now - cachedData.timestamp < REFRESH_CACHE_TTL) {
       // Use cached values for anything we have
-      if (partialCache.data.solPrice) refreshData.solPrice = partialCache.data.solPrice;
-      if (partialCache.data.solBalance) refreshData.solBalance = partialCache.data.solBalance;
-    }
-    
-    // Send intermediate message with partial data if we have it
-    if (refreshData.solPrice || refreshData.solBalance) {
-      refreshData.partial = true;
+      if (cachedData.data.solPrice) refreshData.solPrice = cachedData.data.solPrice;
+      if (cachedData.data.solBalance) refreshData.solBalance = cachedData.data.solBalance;
+      if (cachedData.data.balanceUsd) refreshData.balanceUsd = cachedData.data.balanceUsd;
+      
+      // Send message with cached data
+      refreshData.partial = false;
       await sendRefreshMessage(ctx, refreshData, chatId, messageId);
+      
+      // Start updating cache in background for next time
+      setTimeout(() => {
+        updateCacheInBackground(userId, cacheKey, walletAddress);
+      }, 100);
+      
+      return;
     }
     
-    // Get SOL price and balance in parallel
-    const [solPrice, solBalance] = await Promise.all([
-      getSolPrice().catch(error => {
-        logger.error(`Error fetching SOL price: ${error.message}`);
-        return FEES.DEFAULT_SOL_PRICE || 100;
-      }),
-      (async () => {
-        try {
-          if (walletAddress && walletAddress !== 'Wallet not available') {
-            return await getSolBalance(walletAddress);
-          }
-          return 0;
-        } catch (error) {
-          logger.error(`Error fetching SOL balance: ${error.message}`);
-          return 0;
+    // If we don't have cached data, send an immediate response with loading placeholders
+    refreshData.partial = true;
+    await sendRefreshMessage(ctx, refreshData, chatId, messageId);
+    
+    // Get SOL balance in parallel with price that's already being fetched
+    const solBalancePromise = (async () => {
+      try {
+        if (walletAddress && walletAddress !== 'Wallet not available') {
+          return await getSolBalance(walletAddress);
         }
-      })()
+        return 0;
+      } catch (error) {
+        logger.error(`Error fetching SOL balance: ${error.message}`);
+        return 0;
+      }
+    })();
+    
+    // Wait for both promises to resolve
+    const [solPrice, solBalance] = await Promise.all([
+      solPricePromise,
+      solBalancePromise
     ]);
 
     // Calculate USD balance
@@ -138,6 +145,42 @@ const refreshHandler = async (ctx) => {
     return ctx.reply('Sorry, something went wrong. Please try again later or contact support.');
   }
 };
+
+/**
+ * Background update function to keep cache fresh
+ * @param {string|number} userId - User ID
+ * @param {string} cacheKey - Cache key
+ * @param {string} walletAddress - Wallet address
+ */
+async function updateCacheInBackground(userId, cacheKey, walletAddress) {
+  try {
+    // Skip if address is invalid
+    if (!walletAddress || walletAddress === 'Wallet not available') return;
+    
+    // Get latest data
+    const [solPrice, solBalance] = await Promise.all([
+      getSolPrice(),
+      getSolBalance(walletAddress)
+    ]);
+    
+    const balanceUsd = solBalance * solPrice;
+    
+    // Get the existing cached data
+    const cachedData = refreshCache.get(cacheKey);
+    if (!cachedData) return;
+    
+    // Update just the fields that matter
+    cachedData.timestamp = Date.now();
+    cachedData.data.solPrice = solPrice;
+    cachedData.data.solBalance = solBalance;
+    cachedData.data.balanceUsd = balanceUsd;
+    
+    // Save updated cache
+    refreshCache.set(cacheKey, cachedData);
+  } catch (error) {
+    logger.error(`Background cache update error: ${error.message}`);
+  }
+}
 
 /**
  * Helper function to send the refresh message with current data
@@ -165,15 +208,15 @@ async function sendRefreshMessage(ctx, data, chatId, messageId) {
         Markup.button.callback('💸 Sell', 'sell_token')
       ],
       [
-        Markup.button.callback('📊 Positions', 'view_positions'),
-        Markup.button.callback('🔄 Referrals', 'view_referrals')
+        Markup.button.callback('💤 AFK Mode', 'afk_mode'),
+        Markup.button.callback('📊 Positions', 'view_positions')
       ],
       [
-        Markup.button.callback('📝 Limit Orders', 'view_limit_orders'),
-        Markup.button.callback('👥 Copy Trading', 'copy_trading_placeholder')
+        Markup.button.callback('⏰ Orders', 'view_limit_orders'),
+        Markup.button.callback('👥 Referrals', 'view_referrals')
       ],
       [
-        Markup.button.callback('💳 Wallets', 'wallet_management'),
+        Markup.button.callback('👛 Wallets', 'wallet_management'),
         Markup.button.callback('⚙️ Settings', 'settings')
       ],
       [
@@ -191,8 +234,50 @@ async function sendRefreshMessage(ctx, data, chatId, messageId) {
       `📈 SOL Price: $${data.solPrice.toFixed(2)}` : 
       '📈 SOL Price: --';
     
-    // Display loading indicator for partial data
-    const loadingIndicator = data.partial ? '\n\n⏳ Updating...' : '';
-    
-    const messageText = 
-      `
+    // Build complete message
+    const messageText = `🤖 *Crypto Trading Bot* 🤖\n\n` +
+      `👛 Wallet: \`${data.walletAddress}\`\n\n` +
+      `${solBalanceText}\n` +
+      `${solPriceText}\n\n` +
+      `${feeText}${statsText}`;
+      
+    // Send or update message
+    if (messageId) {
+      try {
+        await ctx.telegram.editMessageText(
+          chatId,
+          messageId,
+          null,
+          messageText,
+          {
+            parse_mode: 'Markdown',
+            disable_web_page_preview: true,
+            reply_markup: mainMenuInlineKeyboard.reply_markup
+          }
+        );
+      } catch (error) {
+        // If message can't be edited (e.g. same content), just ignore
+        logger.debug(`Edit message error (probably same content): ${error.message}`);
+      }
+    } else {
+      await ctx.reply(messageText, {
+        parse_mode: 'Markdown',
+        disable_web_page_preview: true,
+        reply_markup: mainMenuInlineKeyboard.reply_markup
+      });
+    }
+  } catch (error) {
+    logger.error(`Error in sendRefreshMessage: ${error.message}`);
+    // Try a simpler fallback message if needed
+    try {
+      const fallbackMessage = `*Crypto Trading Bot*\n\nWallet: ${data.walletAddress}\n\nUse /refresh to update your data.`;
+      if (messageId) {
+        await ctx.telegram.editMessageText(chatId, messageId, null, fallbackMessage, { parse_mode: 'Markdown' });
+      } else {
+        await ctx.reply(fallbackMessage, { parse_mode: 'Markdown' });
+      }
+    } catch (fallbackError) {
+      logger.error(`Fallback message also failed: ${fallbackError.message}`);
+    }
+  }
+}

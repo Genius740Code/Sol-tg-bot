@@ -266,7 +266,7 @@ const connectionPool = {
 };
 
 /**
- * Get SOL price with caching to handle rate limits - Optimized with new API utils
+ * Get SOL price with optimization to use Helius as primary source
  * @returns {Promise<number>} SOL price in USD
  */
 const getSolPrice = async () => {
@@ -277,7 +277,29 @@ const getSolPrice = async () => {
   }
   
   try {
-    // Use the new utility for resilient price fetching
+    // First try to get from Helius
+    const heliusApiKey = process.env.HELIUS_API_KEY;
+    if (heliusApiKey) {
+      try {
+        const endpoint = `https://api.helius.xyz/v0/token-price?api-key=${heliusApiKey}`;
+        const response = await axios.post(endpoint, { 
+          mintAccounts: ['So11111111111111111111111111111111111111112'] // Native SOL
+        });
+        
+        if (response.data && response.data.length > 0 && response.data[0].price > 0) {
+          const price = response.data[0].price;
+          // Cache the result
+          priceCache.sol = { price, lastUpdated: now };
+          logger.debug(`Got SOL price from Helius: $${price}`);
+          return price;
+        }
+      } catch (heliusError) {
+        logger.debug(`Helius price API error: ${heliusError.message}`);
+        // Continue to fallbacks
+      }
+    }
+    
+    // Fallback to CoinGecko and other sources
     const price = await getPriceWithFallbacks('SOL', 'sol');
     
     if (price > 0) {
@@ -309,7 +331,7 @@ const getSolPrice = async () => {
 };
 
 /**
- * Get SOL balance for a wallet - Simplified with reduced endpoints
+ * Get SOL balance for a wallet - Optimized to use Helius primarily
  * @param {string} address - Wallet address
  * @returns {Promise<number>} - SOL balance
  */
@@ -317,6 +339,17 @@ const getSolBalance = async (address) => {
   // Validate address to prevent errors
   if (!address || address === 'Wallet not available') {
     return WALLET.DEFAULT_SOL_BALANCE;
+  }
+  
+  // First try using Helius API which is more reliable
+  try {
+    const balanceData = await getWalletBalanceHelius(address);
+    if (balanceData && typeof balanceData.solBalance === 'number') {
+      return balanceData.solBalance;
+    }
+  } catch (heliusError) {
+    logger.debug(`Helius balance error, trying RPC fallbacks: ${heliusError.message}`);
+    // Continue to RPC fallbacks
   }
   
   // Try all available endpoints in sequence until we get a successful response

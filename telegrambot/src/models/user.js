@@ -225,11 +225,89 @@ const userSchema = new mongoose.Schema({
       confirmTrades: {
         type: Boolean,
         default: true
+      },
+      buySettings: {
+        defaultAmount: {
+          type: Number,
+          default: 0.5
+        },
+        customAmounts: {
+          type: [Number],
+          default: [0.5, 1, 2, 5, 10]
+        },
+        autoSell: {
+          type: Boolean,
+          default: false
+        },
+        takeProfit: {
+          type: Number,
+          default: null
+        },
+        stopLoss: {
+          type: Number,
+          default: null
+        }
+      },
+      sellSettings: {
+        defaultPercentage: {
+          type: Number,
+          default: 100
+        },
+        percentageOptions: {
+          type: [Number],
+          default: [25, 50, 100]
+        },
+        takeProfit: {
+          type: Number,
+          default: null
+        },
+        stopLoss: {
+          type: Number,
+          default: null
+        },
+        devSell: {
+          type: Boolean,
+          default: false
+        }
       }
     },
+    afkMode: {
+      configs: [{
+        name: String,
+        type: {
+          type: String,
+          enum: ['buy', 'sell'],
+          required: true
+        },
+        tokenAddress: String,
+        tokenSymbol: String,
+        // For buy configs
+        amount: Number,
+        slippage: Number,
+        autoSell: Boolean,
+        // For sell configs
+        percentage: Number,
+        takeProfit: Number,
+        stopLoss: Number,
+        // Common fields
+        active: {
+          type: Boolean,
+          default: true
+        },
+        createdAt: {
+          type: Date,
+          default: Date.now
+        },
+        lastExecutedAt: Date
+      }]
+    }
   },
   state: {
     type: String,
+    default: null
+  },
+  stateData: {
+    type: mongoose.Schema.Types.Mixed,
     default: null
   }
 }, {
@@ -337,15 +415,16 @@ userSchema.pre('save', function(next) {
 // Helper method to get active wallet
 userSchema.methods.getActiveWallet = function() {
   if (!this.wallets || this.wallets.length === 0) {
-    return { 
-      name: 'Main Wallet', 
-      address: this.walletAddress,
-      encryptedPrivateKey: this.encryptedPrivateKey,
-      mnemonic: this.mnemonic
-    };
+    return { name: 'Main Wallet', address: this.walletAddress, isActive: true };
   }
   
   const activeWallet = this.wallets.find(w => w.isActive) || this.wallets[0];
+  
+  // If no active wallet, set the first one as active
+  if (!activeWallet.isActive) {
+    activeWallet.isActive = true;
+  }
+  
   return activeWallet;
 };
 
@@ -355,10 +434,11 @@ userSchema.methods.setActiveWallet = function(walletAddress) {
     this.wallets = [{
       name: 'Main Wallet',
       address: walletAddress,
-      encryptedPrivateKey: this.encryptedPrivateKey,
-      mnemonic: this.mnemonic,
       isActive: true
     }];
+    
+    // Update legacy field for backward compatibility
+    this.walletAddress = walletAddress;
     return;
   }
   
@@ -371,11 +451,19 @@ userSchema.methods.setActiveWallet = function(walletAddress) {
   const wallet = this.wallets.find(w => w.address === walletAddress);
   if (wallet) {
     wallet.isActive = true;
+    
+    // Update legacy field for backward compatibility
+    this.walletAddress = walletAddress;
   } else {
-    // If wallet not found but there's a default one, keep that
-    if (this.wallets.length > 0) {
-      this.wallets[0].isActive = true;
-    }
+    // If wallet not found, add it as a new wallet
+    this.wallets.push({
+      name: `Wallet ${this.wallets.length + 1}`,
+      address: walletAddress,
+      isActive: true
+    });
+    
+    // Update legacy field for backward compatibility
+    this.walletAddress = walletAddress;
   }
 };
 

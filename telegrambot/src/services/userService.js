@@ -951,6 +951,79 @@ const updateReferralCode = async (telegramId, code) => {
   }
 };
 
+/**
+ * Add AFK configuration for user
+ * @param {number} telegramId - User's Telegram ID
+ * @param {Object} configData - Configuration data
+ * @returns {Promise<Object>} Updated user
+ */
+const addAfkConfig = async (telegramId, configData) => {
+  try {
+    // Find the user
+    const user = await User.findOne({ telegramId });
+    
+    if (!user) {
+      throw new Error('User not found');
+    }
+    
+    // Initialize afkMode config array if it doesn't exist
+    if (!user.settings) {
+      user.settings = {};
+    }
+    
+    if (!user.settings.afkMode) {
+      user.settings.afkMode = { configs: [] };
+    }
+    
+    if (!user.settings.afkMode.configs) {
+      user.settings.afkMode.configs = [];
+    }
+    
+    // Add new config to the array
+    user.settings.afkMode.configs.push(configData);
+    
+    // Save the user
+    await user.save();
+    
+    return user;
+  } catch (error) {
+    logger.error(`Error adding AFK config: ${error.message}`);
+    throw new Error('Failed to add AFK configuration');
+  }
+};
+
+/**
+ * Update user state for multi-step workflows
+ * @param {number} telegramId - User's Telegram ID
+ * @param {Object} stateData - State data to update
+ * @returns {Promise<Object>} Updated user
+ */
+const updateUserState = async (telegramId, stateData) => {
+  try {
+    const updateData = {};
+    
+    // Map state data to update fields
+    Object.keys(stateData).forEach(key => {
+      updateData[key] = stateData[key];
+    });
+    
+    const user = await User.findOneAndUpdate(
+      { telegramId },
+      { $set: updateData },
+      { new: true }
+    );
+    
+    if (!user) {
+      throw new Error('User not found');
+    }
+    
+    return user;
+  } catch (error) {
+    logger.error(`Error updating user state: ${error.message}`);
+    throw new Error('Failed to update user state');
+  }
+};
+
 module.exports = {
   getUserByTelegramId,
   createUser,
@@ -970,5 +1043,7 @@ module.exports = {
   getUserFeeInfo,
   updateReferralTiers,
   recordReferralTrade,
-  FEE_CONFIG
+  FEE_CONFIG,
+  addAfkConfig,
+  updateUserState
 }; 
