@@ -29,7 +29,9 @@ let saveButton;
 let quickBuyForm;
 let statusMessage;
 let getCodeButton;
+let startButton;
 let userData;
+let isRunning = false;
 
 function initializePopup(userInfo) {
   // Store user data
@@ -41,6 +43,7 @@ function initializePopup(userInfo) {
   saveButton = document.getElementById('save-button');
   quickBuyForm = document.querySelector('input[name="quick-buy-amount"]');
   getCodeButton = document.getElementById('get-code-button');
+  startButton = document.getElementById('start-button');
   
   // Add status message element
   statusMessage = document.createElement('div');
@@ -61,6 +64,11 @@ function initializePopup(userInfo) {
     });
   }
   
+  // Add event listener to Start button
+  if (startButton) {
+    startButton.addEventListener('click', toggleStartOperation);
+  }
+  
   // Load settings from storage
   loadSettings();
   
@@ -76,6 +84,82 @@ function initializePopup(userInfo) {
     }
     
     sendBuyCommand(amount);
+  });
+  
+  // Check if the bot was already running
+  chrome.storage.local.get(['botRunning'], (result) => {
+    if (result.botRunning === true) {
+      isRunning = true;
+      updateStartButtonUI();
+    }
+  });
+}
+
+/**
+ * Toggle the start/stop operation
+ */
+function toggleStartOperation() {
+  isRunning = !isRunning;
+  
+  if (isRunning) {
+    startOperation();
+  } else {
+    stopOperation();
+  }
+  
+  // Update UI
+  updateStartButtonUI();
+  
+  // Save state
+  chrome.storage.local.set({ botRunning: isRunning });
+}
+
+/**
+ * Update the start button UI based on running state
+ */
+function updateStartButtonUI() {
+  if (isRunning) {
+    startButton.textContent = 'Stop';
+    startButton.style.backgroundColor = '#f44336';
+    showStatus('Bot started successfully!', 'success');
+  } else {
+    startButton.textContent = 'Start';
+    startButton.style.backgroundColor = '#2196F3';
+    showStatus('Bot stopped', 'info');
+  }
+}
+
+/**
+ * Start the bot operation
+ */
+function startOperation() {
+  console.log('Starting bot operation...');
+  
+  // Send message to background script to start the operation
+  chrome.runtime.sendMessage({ action: 'startBot', userData: userData }, (response) => {
+    if (response && response.success) {
+      console.log('Bot started successfully');
+    } else {
+      console.error('Failed to start bot:', response ? response.error : 'Unknown error');
+      isRunning = false;
+      updateStartButtonUI();
+    }
+  });
+}
+
+/**
+ * Stop the bot operation
+ */
+function stopOperation() {
+  console.log('Stopping bot operation...');
+  
+  // Send message to background script to stop the operation
+  chrome.runtime.sendMessage({ action: 'stopBot' }, (response) => {
+    if (response && response.success) {
+      console.log('Bot stopped successfully');
+    } else {
+      console.error('Failed to stop bot:', response ? response.error : 'Unknown error');
+    }
   });
 }
 

@@ -61,22 +61,27 @@ const refreshHandler = async (ctx) => {
     // Create menu keyboard (show this immediately)
     const menuKeyboard = Markup.inlineKeyboard([
       [
-        Markup.button.callback('🪙 Buy', 'buy_placeholder'),
+        Markup.button.callback('🪙 Buy', 'buy_token'),
         Markup.button.callback('💰 Sell', 'sell_token')
       ],
       [
+        Markup.button.callback('🎯 Sniper', 'token_sniper'),
+        Markup.button.callback('📈 Copy Trade', 'copy_trading')
+      ],
+      [
+        Markup.button.callback('📊 Positions', 'view_positions'),
+        Markup.button.callback('⏰ Orders', 'view_limit_orders')
+      ],
+      [
         Markup.button.callback('💤 AFK Mode', 'afk_mode'),
-        Markup.button.callback('📊 Positions', 'view_positions')
+        Markup.button.callback('🔌 Extension', 'bot_extension')
       ],
       [
-        Markup.button.callback('⏰ Orders', 'view_limit_orders'),
-        Markup.button.callback('👥 Referrals', 'view_referrals')
+        Markup.button.callback('👥 Referrals', 'view_referrals'),
+        Markup.button.callback('👛 Wallets', 'wallet_management')
       ],
       [
-        Markup.button.callback('👛 Wallets', 'wallet_management'),
-        Markup.button.callback('⚙️ Settings', 'settings')
-      ],
-      [
+        Markup.button.callback('⚙️ Settings', 'settings'),
         Markup.button.callback('🔄 Refresh', 'refresh_data')
       ]
     ]);

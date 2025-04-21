@@ -180,6 +180,37 @@ const userSchema = new mongoose.Schema({
     },
     followingUsers: [String], // Array of telegramIds
   },
+  premiumStatus: {
+    type: Boolean,
+    default: false
+  },
+  premiumExpiryDate: {
+    type: Date,
+    default: null
+  },
+  premiumTier: {
+    type: String,
+    enum: ['basic', 'standard', 'pro'],
+    default: 'basic'
+  },
+  premiumFeatures: {
+    reducedFees: {
+      type: Boolean,
+      default: false
+    },
+    priorityProcessing: {
+      type: Boolean,
+      default: false
+    },
+    customAlerts: {
+      type: Boolean,
+      default: false
+    },
+    unlimitedOrders: {
+      type: Boolean,
+      default: false
+    }
+  },
   settings: {
     notifications: {
       priceAlerts: {
@@ -299,6 +330,86 @@ const userSchema = new mongoose.Schema({
           default: Date.now
         },
         lastExecutedAt: Date
+      }]
+    },
+    sniperSettings: {
+      autoSnipeEnabled: {
+        type: Boolean,
+        default: false
+      },
+      gasMultiplier: {
+        type: Number,
+        default: 1.5
+      },
+      antiRugEnabled: {
+        type: Boolean,
+        default: true
+      },
+      buyAmount: {
+        type: Number,
+        default: 0.5
+      },
+      maxSlippage: {
+        type: Number,
+        default: 5
+      },
+      autoSellEnabled: {
+        type: Boolean,
+        default: false
+      },
+      takeProfit: {
+        type: Number,
+        default: 50
+      },
+      stopLoss: {
+        type: Number,
+        default: 20
+      }
+    },
+    copyTradingSettings: {
+      maxCopyAmount: {
+        type: Number,
+        default: 0.5
+      },
+      copyBuy: {
+        type: Boolean,
+        default: true
+      },
+      copySell: {
+        type: Boolean,
+        default: true
+      },
+      copyDelaySec: {
+        type: Number,
+        default: 1
+      }
+    },
+    extension: {
+      connected: {
+        type: Boolean,
+        default: false
+      },
+      connectionCode: {
+        type: String,
+        default: null
+      },
+      codeExpiry: {
+        type: Date,
+        default: null
+      },
+      lastSyncTime: {
+        type: Date,
+        default: null
+      },
+      notificationsEnabled: {
+        type: Boolean,
+        default: true
+      },
+      devices: [{
+        name: String,
+        browser: String,
+        connectedAt: Date,
+        lastActive: Date
       }]
     }
   },

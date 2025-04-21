@@ -903,15 +903,15 @@ const getUserFeeInfo = async (telegramId) => {
  */
 const updateReferralCode = async (telegramId, code) => {
   try {
-    // Sanitize input
-    const sanitizedCode = sanitizeInput(code);
-    
-    // Validate code format
-    if (!sanitizedCode.match(/^[a-zA-Z0-9]{4,15}$/)) {
-      throw new Error('Invalid code format. Code must be 4-15 alphanumeric characters.');
+    // Validate the code format
+    if (!code || typeof code !== 'string' || code.length < 5 || code.length > 20) {
+      throw new Error('Invalid referral code format');
     }
     
-    // Check if the code is already taken
+    // Sanitize code
+    const sanitizedCode = sanitizeInput(code).replace(/[^a-zA-Z0-9_-]/g, '');
+    
+    // Check if code already exists for another user
     const existingUser = await User.findOne({
       $or: [
         { referralCode: sanitizedCode },
@@ -919,32 +919,25 @@ const updateReferralCode = async (telegramId, code) => {
       ]
     });
     
-    if (existingUser) {
-      throw new Error('This referral code is already taken.');
+    if (existingUser && existingUser.telegramId !== telegramId.toString()) {
+      throw new Error('This referral code is already in use');
     }
     
-    // Get old code for logging
-    const user = await User.findOne({ telegramId });
-    if (user) {
-      const oldCode = user.referralCode;
-      
-      // Update the main referral code
-      const updatedUser = await User.findOneAndUpdate(
-        { telegramId },
-        { referralCode: sanitizedCode },
-        { new: true }
-      );
-      
-      logger.info(`Updated main referral code for user ${telegramId}: ${oldCode} -> ${sanitizedCode}`);
-      
-      if (!updatedUser) {
-        throw new Error('User not found');
-      }
-      
-      return updatedUser;
-    } else {
+    // Update the user's referral code
+    const user = await User.findOneAndUpdate(
+      { telegramId },
+      { referralCode: sanitizedCode },
+      { new: true }
+    );
+    
+    if (!user) {
       throw new Error('User not found');
     }
+    
+    return {
+      success: true,
+      message: 'Referral code updated successfully'
+    };
   } catch (error) {
     logger.error(`Error updating referral code: ${error.message}`);
     throw error;
@@ -952,7 +945,61 @@ const updateReferralCode = async (telegramId, code) => {
 };
 
 /**
- * Add AFK configuration for user
+ * Validates and stores an extension connection code
+ * @param {string} telegramId - User's Telegram ID
+ * @param {string} connectionCode - Code to connect extension
+ * @param {object} deviceInfo - Information about the connecting device
+ * @returns {Promise<Object>} Success status and message
+ */
+const connectExtension = async (telegramId, connectionCode, deviceInfo = {}) => {
+  try {
+    // Get the user
+    const user = await User.findOne({ telegramId });
+    
+    if (!user) {
+      throw new Error('User not found');
+    }
+    
+    // Check if the code matches and is still valid
+    if (!user.extension?.connectionCode || 
+        user.extension.connectionCode !== connectionCode ||
+        !user.extension.codeExpiry ||
+        new Date() > new Date(user.extension.codeExpiry)) {
+      throw new Error('Invalid or expired connection code');
+    }
+    
+    // Format device info
+    const device = {
+      name: deviceInfo.name || 'Unknown Device',
+      browser: deviceInfo.browser || 'Unknown Browser',
+      connectedAt: new Date(),
+      lastActive: new Date()
+    };
+    
+    // Update user with extension connection
+    await User.updateOne(
+      { telegramId },
+      { 
+        'extension.connected': true,
+        'extension.connectionCode': null, // Clear the code after use
+        'extension.codeExpiry': null,
+        'extension.lastSyncTime': new Date(),
+        $push: { 'extension.devices': device }
+      }
+    );
+    
+    return {
+      success: true,
+      message: 'Extension connected successfully'
+    };
+  } catch (error) {
+    logger.error(`Error connecting extension: ${error.message}`);
+    throw error;
+  }
+};
+
+/**
+ * Add configuration for AFK mode
  * @param {number} telegramId - User's Telegram ID
  * @param {Object} configData - Configuration data
  * @returns {Promise<Object>} Updated user
@@ -1045,5 +1092,6 @@ module.exports = {
   recordReferralTrade,
   FEE_CONFIG,
   addAfkConfig,
-  updateUserState
+  updateUserState,
+  connectExtension
 }; 

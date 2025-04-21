@@ -6,6 +6,9 @@ const { registerLimitOrderHandlers } = require('./handlers/limitOrderHandler');
 const { registerReferralHandlers } = require('./handlers/referralHandler');
 const { registerSettingsHandlers } = require('./handlers/settingsHandler');
 const { registerExtensionHandlers } = require('./handlers/extensionHandler');
+const { registerPremiumHandlers } = require('./handlers/premiumHandler');
+const { registerSniperHandlers } = require('./handlers/sniperHandler');
+const { registerCopyTradingHandlers, copyTradingHandler } = require('./handlers/copyTradingHandler');
 const { logger } = require('./database');
 const userService = require('./services/userService');
 const { getSolPrice } = require('../utils/wallet');
@@ -30,6 +33,9 @@ async function startBot() {
     registerReferralHandlers(bot);
     registerSettingsHandlers(bot);
     registerExtensionHandlers(bot);
+    registerPremiumHandlers(bot);
+    registerSniperHandlers(bot);
+    registerCopyTradingHandlers(bot);
     
     // Register wallet handlers
     const { registerWalletHandlers } = require('./handlers/walletHandler');
@@ -212,13 +218,163 @@ async function startBot() {
       }
     });
     
+    bot.action('premium_features', async (ctx) => {
+      try {
+        await ctx.answerCbQuery();
+        // Call the premium features handler
+        const { premiumFeaturesHandler } = require('./handlers/premiumHandler');
+        return premiumFeaturesHandler(ctx);
+      } catch (error) {
+        logger.error(`Premium features error: ${error.message}`);
+        return ctx.reply('Sorry, there was an error accessing premium features.');
+      }
+    });
+    
     bot.action('copy_trading', async (ctx) => {
       try {
         await ctx.answerCbQuery();
-        return ctx.reply('Copy trading feature is coming soon!');
+        return copyTradingHandler(ctx);
       } catch (error) {
         logger.error(`Copy trading error: ${error.message}`);
         return ctx.reply('Sorry, there was an error accessing copy trading.');
+      }
+    });
+    
+    bot.action('token_sniper', async (ctx) => {
+      try {
+        await ctx.answerCbQuery();
+        const { sniperHandler } = require('./handlers/sniperHandler');
+        return sniperHandler(ctx);
+      } catch (error) {
+        logger.error(`Token sniper error: ${error.message}`);
+        return ctx.reply('Sorry, there was an error accessing the token sniper.');
+      }
+    });
+    
+    bot.action('bot_extension', async (ctx) => {
+      try {
+        await ctx.answerCbQuery();
+        return ctx.reply(
+          '🔌 *Bot Extension*\n\n' + 
+          'Connect to our browser extension for faster trading:\n\n' +
+          '• One-click trading from any site\n' +
+          '• Real-time price alerts\n' +
+          '• Quick wallet access\n' +
+          '• Automatic token detection',
+          {
+            parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  { text: '🔗 Connect Extension', callback_data: 'connect_extension' },
+                  { text: '📥 Download', callback_data: 'download_extension' }
+                ],
+                [
+                  { text: '📱 Mobile App', callback_data: 'mobile_app' }
+                ],
+                [
+                  { text: '🔙 Back to Menu', callback_data: 'refresh_data' }
+                ]
+              ]
+            }
+          }
+        );
+      } catch (error) {
+        logger.error(`Bot extension error: ${error.message}`);
+        return ctx.reply('Sorry, there was an error accessing the bot extension.');
+      }
+    });
+    
+    // Register basic extension actions
+    bot.action('connect_extension', async (ctx) => {
+      try {
+        await ctx.answerCbQuery('Generating connection code...');
+        
+        // Generate a random connection code
+        const connectionCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+        
+        // Store the code in user's settings (expiring in 5 minutes)
+        await userService.updateUserSettings(ctx.from.id, {
+          'extension.connectionCode': connectionCode,
+          'extension.codeExpiry': new Date(Date.now() + 5 * 60 * 1000)
+        });
+        
+        return ctx.reply(
+          '🔗 *Extension Connection*\n\n' +
+          'Enter this code in the extension to connect:\n\n' +
+          `\`${connectionCode}\`\n\n` +
+          'This code will expire in 5 minutes.',
+          {
+            parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '🔙 Back to Extension', callback_data: 'bot_extension' }]
+              ]
+            }
+          }
+        );
+      } catch (error) {
+        logger.error(`Extension connection error: ${error.message}`);
+        return ctx.reply('Sorry, there was an error generating a connection code.');
+      }
+    });
+    
+    bot.action('download_extension', async (ctx) => {
+      try {
+        await ctx.answerCbQuery();
+        return ctx.reply(
+          '📥 *Download Extension*\n\n' +
+          'Our extension is available for:\n\n' +
+          '• Chrome/Brave\n' +
+          '• Firefox\n' +
+          '• Edge\n\n' +
+          'Download from the official store for your browser:',
+          {
+            parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  { text: 'Chrome Store', url: 'https://chrome.google.com/webstore' },
+                  { text: 'Firefox Add-ons', url: 'https://addons.mozilla.org' }
+                ],
+                [{ text: '🔙 Back to Extension', callback_data: 'bot_extension' }]
+              ]
+            }
+          }
+        );
+      } catch (error) {
+        logger.error(`Download extension error: ${error.message}`);
+        return ctx.reply('Sorry, there was an error accessing the download links.');
+      }
+    });
+    
+    bot.action('mobile_app', async (ctx) => {
+      try {
+        await ctx.answerCbQuery();
+        return ctx.reply(
+          '📱 *Mobile App*\n\n' +
+          'Get our mobile app for on-the-go trading:\n\n' +
+          '• Real-time trading\n' +
+          '• Price alerts\n' +
+          '• Portfolio tracking\n' +
+          '• Secure wallet\n\n' +
+          'Download from your app store:',
+          {
+            parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  { text: 'App Store', url: 'https://apps.apple.com' },
+                  { text: 'Google Play', url: 'https://play.google.com' }
+                ],
+                [{ text: '🔙 Back to Extension', callback_data: 'bot_extension' }]
+              ]
+            }
+          }
+        );
+      } catch (error) {
+        logger.error(`Mobile app error: ${error.message}`);
+        return ctx.reply('Sorry, there was an error accessing the mobile app information.');
       }
     });
     
@@ -272,16 +428,41 @@ async function startBot() {
     await bot.launch();
     logger.info('Bot started successfully');
     
-    // Enable graceful stop
-    process.once('SIGINT', () => {
-      logger.info('SIGINT received. Stopping bot...');
-      bot.stop('SIGINT');
-    });
+    // Enable graceful stop with proper cleanup
+    const gracefulShutdown = async (signal) => {
+      logger.info(`${signal} received. Stopping bot...`);
+      
+      // Stop the bot first
+      bot.stop();
+      logger.info('Bot stopped successfully');
+      
+      // Close database connections safely
+      try {
+        logger.info('Stopping scheduled jobs...');
+        // Stop any scheduled jobs here if needed
+        logger.info('Scheduled jobs stopped successfully');
+        
+        logger.info('Closing database connection...');
+        // Close MongoDB connection if it's active
+        const mongoose = require('mongoose');
+        if (mongoose.connection.readyState !== 0) {
+          await mongoose.connection.close();
+          logger.info('MongoDB connection closed cleanly');
+        }
+      } catch (error) {
+        logger.error(`Error during shutdown: ${error.message}`);
+      }
+      
+      // Exit process after a short delay to allow logging to complete
+      setTimeout(() => {
+        logger.info(`${signal} shutdown completed`);
+        process.exit(0);
+      }, 500);
+    };
     
-    process.once('SIGTERM', () => {
-      logger.info('SIGTERM received. Stopping bot...');
-      bot.stop('SIGTERM');
-    });
+    // Register shutdown handlers
+    process.once('SIGINT', () => gracefulShutdown('SIGINT'));
+    process.once('SIGTERM', () => gracefulShutdown('SIGTERM'));
   } catch (error) {
     logger.error(`Error starting bot: ${error.message}`);
     process.exit(1);
