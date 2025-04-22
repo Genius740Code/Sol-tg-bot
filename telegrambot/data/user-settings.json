@@ -1,0 +1,70 @@
+{
+  "7499348704": {
+    "notifications": {
+      "priceAlerts": true,
+      "tradingUpdates": true
+    },
+    "tradingSettings": {
+      "buySettings": {
+        "defaultAmount": 0.5,
+        "customAmounts": [
+          0.5,
+          1,
+          2,
+          5,
+          10
+        ],
+        "autoSell": false,
+        "takeProfit": null,
+        "stopLoss": null
+      },
+      "sellSettings": {
+        "defaultPercentage": 100,
+        "percentageOptions": [
+          25,
+          50,
+          100
+        ],
+        "takeProfit": null,
+        "stopLoss": null,
+        "devSell": false
+      },
+      "maxSlippage": 1,
+      "feeType": "FAST",
+      "buyTip": 0.001,
+      "sellTip": 0.001,
+      "customFeeValue": 0.001,
+      "mevProtection": false,
+      "processType": "standard",
+      "confirmTrades": true
+    },
+    "afkMode": {
+      "configs": []
+    },
+    "sniperSettings": {
+      "autoSnipeEnabled": false,
+      "gasMultiplier": 1.5,
+      "antiRugEnabled": true,
+      "buyAmount": 0.5,
+      "maxSlippage": 5,
+      "autoSellEnabled": false,
+      "takeProfit": 50,
+      "stopLoss": 20
+    },
+    "copyTradingSettings": {
+      "maxCopyAmount": 0.5,
+      "copyBuy": true,
+      "copySell": true,
+      "copyDelaySec": 1
+    },
+    "extension": {
+      "connected": false,
+      "connectionCode": null,
+      "codeExpiry": null,
+      "lastSyncTime": null,
+      "notificationsEnabled": true,
+      "devices": []
+    },
+    "lastUpdated": "2025-04-21T18:22:41.839Z"
+  }
+}

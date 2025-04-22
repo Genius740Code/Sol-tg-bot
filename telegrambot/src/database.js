@@ -20,10 +20,12 @@ const logger = winston.createLogger({
     winston.format.timestamp({
       format: 'YYYY-MM-DD HH:mm:ss'
     }),
+    winston.format.errors({ stack: true }), // Include stack traces for errors
     winston.format.printf(info => {
-      const { timestamp, level, message, ...rest } = info;
-      const restString = Object.keys(rest).length ? JSON.stringify(rest) : '';
-      return `${timestamp} ${level.toUpperCase()}: ${message} ${restString}`;
+      const { timestamp, level, message, stack, ...rest } = info;
+      const restString = Object.keys(rest).length ? JSON.stringify(rest, null, 2) : '';
+      const stackInfo = stack ? `\n${stack}` : '';
+      return `${timestamp} ${level.toUpperCase()}: ${message}${stackInfo} ${restString}`;
     })
   ),
   transports: [
@@ -121,13 +123,17 @@ const connectWithRetry = async (retryNumber = 0) => {
       connectTimeoutMS: 30000,
       socketTimeoutMS: 60000,
       // Connection pool settings for better performance
-      maxPoolSize: 20,
+      maxPoolSize: 30, // Increased for better parallel processing
       minPoolSize: 5,
       maxIdleTimeMS: 60000,
       // Only use compatible options for current mongoose version
       heartbeatFrequencyMS: 30000,
-      autoIndex: false, // Disable auto-indexing in production for performance
-      autoCreate: false // Disable auto-creation for better control
+      autoIndex: process.env.NODE_ENV !== 'production', // Disable auto-indexing in production for performance
+      autoCreate: false, // Disable auto-creation for better control
+      // Enable read preference secondary for better load balancing if using replica set
+      ...(config.MONGODB_URI.includes('replicaSet') && { 
+        readPreference: 'secondaryPreferred' 
+      })
     });
     
     logger.info('MongoDB Connected to main database');
@@ -137,7 +143,7 @@ const connectWithRetry = async (retryNumber = 0) => {
       serverSelectionTimeoutMS: 30000,
       connectTimeoutMS: 30000,
       socketTimeoutMS: 60000,
-      maxPoolSize: 10,
+      maxPoolSize: 15, // Increased for better parallel processing
       minPoolSize: 2
     });
     
@@ -175,67 +181,175 @@ const connectWithRetry = async (retryNumber = 0) => {
 };
 
 // Initialize database cache for common queries
-const dbCache = {
-  data: new Map(),
-  ttl: 60000, // 1 minute cache TTL
-  lastCleanup: Date.now(),
+const dbCache = (() => {
+  const cacheMap = new Map();
+  const ttlMap = new Map(); // Separate map for TTL tracking for better performance
+  const stats = {
+    hits: 0,
+    misses: 0,
+    evictions: 0,
+    lastCleanup: Date.now()
+  };
   
-  /**
-   * Get cached query result
-   * @param {string} key - Cache key
-   * @returns {any|null} Cached value or null
-   */
-  get(key) {
-    this.cleanup();
-    const cached = this.data.get(key);
-    if (cached && Date.now() < cached.expires) {
-      return cached.value;
-    }
-    return null;
-  },
+  // Set default TTL (1 minute)
+  const DEFAULT_TTL = 60000;
   
-  /**
-   * Store value in cache
-   * @param {string} key - Cache key
-   * @param {any} value - Value to cache
-   * @param {number} customTtl - Optional custom TTL in ms
-   */
-  set(key, value, customTtl = null) {
-    const ttl = customTtl || this.ttl;
-    this.data.set(key, {
-      value,
-      expires: Date.now() + ttl
-    });
-  },
+  // Maximum cache size (items)
+  const MAX_CACHE_SIZE = 500;
   
-  /**
-   * Clean expired cache entries
-   */
-  cleanup() {
-    const now = Date.now();
+  return {
+    stats,
     
-    // Only run cleanup once per minute
-    if (now - this.lastCleanup < 60000) return;
-    
-    this.data.forEach((value, key) => {
-      if (now > value.expires) {
-        this.data.delete(key);
+    /**
+     * Get cached query result
+     * @param {string} key - Cache key
+     * @returns {any|null} Cached value or null
+     */
+    get(key) {
+      this.cleanupIfNeeded();
+      
+      const expiry = ttlMap.get(key);
+      
+      if (expiry && Date.now() < expiry) {
+        stats.hits++;
+        return cacheMap.get(key);
       }
-    });
+      
+      // If key exists but expired, delete it
+      if (expiry) {
+        cacheMap.delete(key);
+        ttlMap.delete(key);
+        stats.evictions++;
+      }
+      
+      stats.misses++;
+      return null;
+    },
     
-    this.lastCleanup = now;
-  }
-};
+    /**
+     * Store value in cache
+     * @param {string} key - Cache key
+     * @param {any} value - Value to cache
+     * @param {number} customTtl - Optional custom TTL in ms
+     */
+    set(key, value, customTtl = null) {
+      // Check if cache is full and needs eviction (LRU-like behavior)
+      if (cacheMap.size >= MAX_CACHE_SIZE && !cacheMap.has(key)) {
+        this.evictOldest();
+      }
+      
+      const ttl = customTtl || DEFAULT_TTL;
+      cacheMap.set(key, value);
+      ttlMap.set(key, Date.now() + ttl);
+    },
+    
+    /**
+     * Clean expired cache entries if needed
+     */
+    cleanupIfNeeded() {
+      const now = Date.now();
+      
+      // Only run cleanup once per minute to avoid performance hit
+      if (now - stats.lastCleanup < 60000) return;
+      
+      let evicted = 0;
+      ttlMap.forEach((expiry, key) => {
+        if (now > expiry) {
+          cacheMap.delete(key);
+          ttlMap.delete(key);
+          evicted++;
+        }
+      });
+      
+      stats.evictions += evicted;
+      stats.lastCleanup = now;
+      
+      if (evicted > 0) {
+        logger.debug(`Cache cleanup: removed ${evicted} expired items. Current size: ${cacheMap.size}`);
+      }
+    },
+    
+    /**
+     * Evict oldest cache entry based on expiration
+     */
+    evictOldest() {
+      let oldestKey = null;
+      let oldestExpiry = Infinity;
+      
+      ttlMap.forEach((expiry, key) => {
+        if (expiry < oldestExpiry) {
+          oldestExpiry = expiry;
+          oldestKey = key;
+        }
+      });
+      
+      if (oldestKey) {
+        cacheMap.delete(oldestKey);
+        ttlMap.delete(oldestKey);
+        stats.evictions++;
+      }
+    },
+    
+    /**
+     * Clear entire cache
+     */
+    clear() {
+      cacheMap.clear();
+      ttlMap.clear();
+      stats.evictions = 0;
+      stats.hits = 0;
+      stats.misses = 0;
+      logger.debug('Cache cleared');
+    },
+    
+    /**
+     * Get cache statistics
+     */
+    getStats() {
+      return {
+        ...stats,
+        size: cacheMap.size,
+        hitRatio: stats.hits / (stats.hits + stats.misses) || 0
+      };
+    }
+  };
+})();
 
 module.exports = {
   connectDB: connectWithRetry,
   mongoose,
   logger,
   dbCache,
-  closeConnection: () => mongoose.connection.close(),
+  closeConnection: async () => {
+    try {
+      // Close both connections properly
+      const promises = [mongoose.connection.close()];
+      if (extensionConnection && extensionConnection.readyState === 1) {
+        promises.push(extensionConnection.close());
+      }
+      await Promise.all(promises);
+      logger.info('All database connections closed');
+      return true;
+    } catch (err) {
+      logger.error(`Error closing database connections: ${err.message}`);
+      return false;
+    }
+  },
   extensionConnection: () => extensionConnection,
   models: {
     ExtensionUser: () => ExtensionUser,
     User: () => User
-  }
+  },
+  // Utility method to monitor database performance
+  getDbStats: () => ({
+    mainConnection: {
+      readyState: mongoose.connection.readyState,
+      collections: mongoose.connection.collections ? Object.keys(mongoose.connection.collections).length : 0
+    },
+    extensionConnection: extensionConnection ? {
+      readyState: extensionConnection.readyState,
+      collections: extensionConnection.collections ? Object.keys(extensionConnection.collections).length : 0
+    } : null,
+    cache: dbCache.getStats()
+  })
 }; 

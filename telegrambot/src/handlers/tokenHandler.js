@@ -1,9 +1,12 @@
 const { getTokenInfo, getTokenPrice, isRateLimited, getSolPrice } = require('../../utils/wallet');
 const { Markup } = require('telegraf');
-const { logger } = require('../database');
+const { logger, dbCache } = require('../database');
 const axios = require('axios');
 const userService = require('../services/userService');
 const { MESSAGE } = require('../../../config/constants');
+
+// Cache TTL in milliseconds (15 minutes)
+const TOKEN_CACHE_TTL = 15 * 60 * 1000;
 
 // Helper function to escape special characters for MarkdownV2
 const escapeMarkdown = (text) => {
@@ -11,11 +14,14 @@ const escapeMarkdown = (text) => {
   return text.toString().replace(/([_*[\]()~`>#+\-=|{}.!])/g, '\\$1');
 };
 
-// Handle token address analysis
+// Handle token address analysis with improved caching and error handling
 const tokenInfoHandler = async (ctx) => {
   try {
+    // Extract user ID for rate limiting
+    const userId = ctx.from.id;
+    
     // Check rate limit
-    if (isRateLimited(ctx.from.id)) {
+    if (isRateLimited(userId)) {
       return ctx.reply('Please wait a moment before making another request.');
     }
     
@@ -28,8 +34,33 @@ const tokenInfoHandler = async (ctx) => {
       return ctx.reply('Please enter a valid Solana token address.');
     }
     
-    // Get token price and info from Helius
-    const tokenData = await getTokenPrice(tokenAddress);
+    // Send typing indicator while processing
+    await ctx.telegram.sendChatAction(ctx.chat.id, 'typing');
+    
+    // Check if we have this token info in cache
+    const cacheKey = `token_info:${tokenAddress}`;
+    const cachedTokenData = dbCache.get(cacheKey);
+    
+    let tokenData;
+    
+    if (cachedTokenData) {
+      // Use cached data
+      logger.debug(`Using cached token data for ${tokenAddress}`);
+      tokenData = cachedTokenData;
+    } else {
+      // Get token price and info from Helius
+      try {
+        tokenData = await getTokenPrice(tokenAddress);
+        
+        // Cache the result if valid
+        if (tokenData && tokenData.tokenInfo) {
+          dbCache.set(cacheKey, tokenData, TOKEN_CACHE_TTL);
+        }
+      } catch (error) {
+        logger.error(`Error fetching token data: ${error.message}`, { tokenAddress });
+        return ctx.reply('❌ Error fetching token data. Please try again later.');
+      }
+    }
     
     if (!tokenData || !tokenData.tokenInfo) {
       return ctx.reply('❌ Could not find information for this token.');
@@ -48,18 +79,31 @@ const tokenInfoHandler = async (ctx) => {
       imageUrl = tokenInfo.content.links.image;
     }
     
-    // Format price data
-    const price = typeof tokenData.price === 'number' ? 
-      `$${tokenData.price.toFixed(tokenData.price < 0.01 ? 8 : 4)}` : 
-      'Unknown';
-    
-    const marketCap = typeof tokenData.marketCap === 'number' ? 
-      `$${tokenData.marketCap.toLocaleString()}` : 
-      'Unknown';
+    // Format price data with precision based on value
+    const formatTokenPrice = (price) => {
+      if (typeof price !== 'number') return 'Unknown';
       
-    const liquidity = typeof tokenData.liquidity === 'number' ? 
-      `$${tokenData.liquidity.toLocaleString()}` : 
-      'Unknown';
+      // Use more decimal places for very small numbers
+      if (price < 0.0001) return `$${price.toExponential(4)}`;
+      if (price < 0.01) return `$${price.toFixed(8)}`;
+      if (price < 1) return `$${price.toFixed(6)}`;
+      if (price < 1000) return `$${price.toFixed(4)}`;
+      return `$${price.toLocaleString(undefined, {maximumFractionDigits: 2})}`;
+    };
+    
+    const formatLargeNumber = (num) => {
+      if (typeof num !== 'number') return 'Unknown';
+      
+      if (num >= 1e9) return `$${(num / 1e9).toFixed(2)}B`;
+      if (num >= 1e6) return `$${(num / 1e6).toFixed(2)}M`;
+      if (num >= 1e3) return `$${(num / 1e3).toFixed(2)}K`;
+      return `$${num.toLocaleString()}`;
+    };
+    
+    // Format price data
+    const price = formatTokenPrice(tokenData.price);
+    const marketCap = formatLargeNumber(tokenData.marketCap);
+    const liquidity = formatLargeNumber(tokenData.liquidity);
     
     // Escape special characters for MarkdownV2
     const escapedTokenName = escapeMarkdown(tokenName);
@@ -82,7 +126,13 @@ const tokenInfoHandler = async (ctx) => {
     // Add supply info if available
     if (tokenInfo.supply) {
       const totalSupply = parseInt(tokenInfo.supply.total) / Math.pow(10, tokenDecimals);
-      const escapedSupply = escapeMarkdown(totalSupply.toLocaleString());
+      const formattedSupply = totalSupply >= 1e9 
+        ? `${(totalSupply / 1e9).toFixed(2)}B` 
+        : totalSupply >= 1e6 
+          ? `${(totalSupply / 1e6).toFixed(2)}M` 
+          : totalSupply.toLocaleString();
+          
+      const escapedSupply = escapeMarkdown(formattedSupply);
       responseMessage += `📊 *Total Supply:* ${escapedSupply}\n\n`;
     }
     
@@ -100,7 +150,7 @@ const tokenInfoHandler = async (ctx) => {
     const refLink = `https://t.me/sol\\_trojanbot?start=r\\-${ctx.from.username}\\-${tokenAddress}`;
     responseMessage += `• [Share with Referral](${refLink})\n`;
     
-    // Add action buttons
+    // Add action buttons (cached for frequently used tokens)
     const actionKeyboard = Markup.inlineKeyboard([
       [
         Markup.button.callback('💰 Buy', `buy_${tokenAddress}`),
@@ -123,7 +173,20 @@ const tokenInfoHandler = async (ctx) => {
     });
     
   } catch (error) {
-    logger.error(`Token info handler error: ${error.message}`);
+    logger.error(`Token info handler error: ${error.message}`, { 
+      stack: error.stack,
+      user: ctx.from.id
+    });
+    
+    // Send user-friendly error message based on error type
+    if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
+      return ctx.reply('The request timed out. Network may be slow, please try again.');
+    } else if (error.response && error.response.status === 429) {
+      return ctx.reply('Too many requests. Please try again in a few minutes.');
+    } else if (error.response && error.response.status >= 500) {
+      return ctx.reply('Server error. The token data service is currently unavailable.');
+    }
+    
     return ctx.reply('Sorry, I could not analyze this token. Please try again later.');
   }
 };
