@@ -180,37 +180,6 @@ const userSchema = new mongoose.Schema({
     },
     followingUsers: [String], // Array of telegramIds
   },
-  premiumStatus: {
-    type: Boolean,
-    default: false
-  },
-  premiumExpiryDate: {
-    type: Date,
-    default: null
-  },
-  premiumTier: {
-    type: String,
-    enum: ['basic', 'standard', 'pro'],
-    default: 'basic'
-  },
-  premiumFeatures: {
-    reducedFees: {
-      type: Boolean,
-      default: false
-    },
-    priorityProcessing: {
-      type: Boolean,
-      default: false
-    },
-    customAlerts: {
-      type: Boolean,
-      default: false
-    },
-    unlimitedOrders: {
-      type: Boolean,
-      default: false
-    }
-  },
   settings: {
     notifications: {
       priceAlerts: {

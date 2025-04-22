@@ -3,13 +3,15 @@ const schedule = require('node-schedule');
 const { connectDB, logger, dbCache } = require('./database');
 const { startHandler } = require('./handlers/startHandler');
 const { refreshHandler } = require('./handlers/refreshHandler');
-const { tokenInfoHandler, registerTokenHandlers, sellTokenHandler } = require('./handlers/tokenHandler');
+const { tokenInfoHandler, registerTokenHandlers } = require('./handlers/tokenHandler');
 const { referralHandler, registerReferralHandlers } = require('./handlers/referralHandler');
 const { settingsHandler, registerSettingsHandlers } = require('./handlers/settingsHandler');
 const { positionsHandler, registerPositionHandlers } = require('./handlers/positionHandler');
 const { limitOrdersHandler, registerLimitOrderHandlers } = require('./handlers/limitOrderHandler');
-const { registerWalletHandlers } = require('./handlers/walletHandler');
+const { registerWalletHandlers } = require('./handlers/wallet');
 const { registerExtensionHandlers } = require('./handlers/extensionHandler');
+const { registerSniperHandlers } = require('./handlers/sniperHandler');
+const { registerCopyTradingHandlers } = require('./handlers/copyTradingHandler');
 const { getSolPrice } = require('../utils/wallet');
 const { updateOrSendMessage, extractUserInfo, formatPrice } = require('../utils/messageUtils');
 const { COMMANDS, ACTIONS } = require('../../config/constants');
@@ -221,6 +223,8 @@ const setupBot = () => {
   registerSettingsHandlers(bot);
   registerWalletHandlers(bot);
   registerExtensionHandlers(bot);
+  registerSniperHandlers(bot);
+  registerCopyTradingHandlers(bot);
   
   // Register command handlers
   registerCommandHandlers();
@@ -443,7 +447,7 @@ const registerCommandHandlers = () => {
   
   // Wallets command
   bot.command(COMMANDS.WALLETS, async (ctx) => {
-    const { walletManagementHandler } = require('./handlers/walletHandler');
+    const { walletManagementHandler } = require('./handlers/wallet');
     return walletManagementHandler(ctx);
   });
 };
@@ -483,7 +487,7 @@ const registerActionHandlers = () => {
   bot.action(ACTIONS.WALLETS, async (ctx) => {
     await ctx.answerCbQuery();
     // Use the walletManagementHandler from walletHandler.js
-    const { walletManagementHandler } = require('./handlers/walletHandler');
+    const { walletManagementHandler } = require('./handlers/wallet');
     return walletManagementHandler(ctx);
   });
   
@@ -547,7 +551,7 @@ const registerTextHandler = () => {
       // Handle based on current user state
       switch (user.state.action) {
         case 'awaiting_wallet':
-          const { addWalletHandler } = require('./handlers/walletHandler');
+          const { addWalletHandler } = require('./handlers/wallet');
           return addWalletHandler(ctx);
         
         case 'awaiting_referral_code':

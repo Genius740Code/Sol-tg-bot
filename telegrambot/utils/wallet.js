@@ -129,10 +129,15 @@ const isRateLimited = (userId) => {
 const priceCache = {
   sol: {
     price: null,
-    lastUpdated: 0
+    lastUpdated: 0,
+    isFetching: false
   },
   tokens: new Map() // tokenAddress -> {price, lastUpdated}
 };
+
+// Cache for wallet balances
+const balanceCache = new Map(); // walletAddress -> {balance, timestamp}
+const BALANCE_CACHE_TTL = 30 * 1000; // 30 seconds for balance cache
 
 // Cache TTL in milliseconds - Optimized values
 const CACHE_TTL = 2 * 60 * 1000; // 2 minutes for normal cache (was 1 minute)
@@ -270,26 +275,49 @@ const connectionPool = {
  * @returns {Promise<number>} SOL price in USD
  */
 const getSolPrice = async () => {
-  // Check cache first
+  // Check cache first with shorter check for even faster responses
   const now = Date.now();
   if (priceCache.sol.price && now - priceCache.sol.lastUpdated < CACHE_TTL) {
     return priceCache.sol.price;
   }
   
+  // Use the most recent price as a fallback while fetching fresh price
+  const cachedPrice = priceCache.sol.price || WALLET.DEFAULT_SOL_PRICE;
+  
+  // Start fetching in background if this is called frequently
+  if (priceCache.sol.isFetching) {
+    return cachedPrice;
+  }
+  
+  // Set fetching flag to prevent multiple parallel requests
+  priceCache.sol.isFetching = true;
+  
   try {
-    // First try to get from Helius
+    // First try to get from Helius (fastest source)
     const heliusApiKey = process.env.HELIUS_API_KEY;
     if (heliusApiKey) {
       try {
         const endpoint = `https://api.helius.xyz/v0/token-price?api-key=${heliusApiKey}`;
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 1500); // 1.5s timeout
+        
         const response = await axios.post(endpoint, { 
           mintAccounts: ['So11111111111111111111111111111111111111112'] // Native SOL
+        }, { 
+          signal: controller.signal,
+          timeout: 1500 // Also set axios timeout
         });
+        
+        clearTimeout(timeoutId);
         
         if (response.data && response.data.length > 0 && response.data[0].price > 0) {
           const price = response.data[0].price;
           // Cache the result
-          priceCache.sol = { price, lastUpdated: now };
+          priceCache.sol = { 
+            price, 
+            lastUpdated: now,
+            isFetching: false
+          };
           logger.debug(`Got SOL price from Helius: $${price}`);
           return price;
         }
@@ -299,12 +327,25 @@ const getSolPrice = async () => {
       }
     }
     
-    // Fallback to CoinGecko and other sources
-    const price = await getPriceWithFallbacks('SOL', 'sol');
+    // Fallback to CoinGecko and other sources with timeout
+    const pricePromise = getPriceWithFallbacks('SOL', 'sol');
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Price API timeout')), 2000)
+    );
+    
+    const price = await Promise.race([pricePromise, timeoutPromise])
+      .catch(error => {
+        logger.warn(`Price API timed out or failed: ${error.message}`);
+        return 0;
+      });
     
     if (price > 0) {
       // Cache the result
-      priceCache.sol = { price, lastUpdated: now };
+      priceCache.sol = { 
+        price, 
+        lastUpdated: now,
+        isFetching: false
+      };
       return price;
     }
     
@@ -312,10 +353,12 @@ const getSolPrice = async () => {
     // Try to use cache even if expired
     if (priceCache.sol.price && now - priceCache.sol.lastUpdated < ULTRA_LONG_CACHE_TTL) {
       logger.warn(`Using cached SOL price (extended fallback): $${priceCache.sol.price}`);
+      priceCache.sol.isFetching = false;
       return priceCache.sol.price;
     }
     
     // Last resort, return default price
+    priceCache.sol.isFetching = false;
     return WALLET.DEFAULT_SOL_PRICE;
   } catch (error) {
     logger.error(`Error in getSolPrice: ${error.message}`);
@@ -323,9 +366,11 @@ const getSolPrice = async () => {
     // Try to use cache even if expired
     if (priceCache.sol.price) {
       logger.warn(`Using cached SOL price after error: $${priceCache.sol.price}`);
+      priceCache.sol.isFetching = false;
       return priceCache.sol.price;
     }
     
+    priceCache.sol.isFetching = false;
     return WALLET.DEFAULT_SOL_PRICE;
   }
 };
@@ -341,10 +386,31 @@ const getSolBalance = async (address) => {
     return WALLET.DEFAULT_SOL_BALANCE;
   }
   
-  // First try using Helius API which is more reliable
+  // Check cache first
+  const cacheKey = `balance_${address}`;
+  const now = Date.now();
+  if (balanceCache.has(cacheKey)) {
+    const cachedData = balanceCache.get(cacheKey);
+    if (now - cachedData.timestamp < BALANCE_CACHE_TTL) {
+      return cachedData.balance;
+    }
+  }
+  
+  // First try using Helius API which is more reliable and faster
   try {
-    const balanceData = await getWalletBalanceHelius(address);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 1500); // 1.5s timeout
+    
+    const balanceData = await getWalletBalanceHelius(address, controller.signal);
+    clearTimeout(timeoutId);
+    
     if (balanceData && typeof balanceData.solBalance === 'number') {
+      // Cache the result
+      balanceCache.set(cacheKey, {
+        balance: balanceData.solBalance,
+        timestamp: now
+      });
+      
       return balanceData.solBalance;
     }
   } catch (heliusError) {
@@ -357,28 +423,33 @@ const getSolBalance = async (address) => {
   let balance = WALLET.DEFAULT_SOL_BALANCE;
   let success = false;
   
-  // Shuffle endpoints to distribute load
-  for (let i = endpoints.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [endpoints[i], endpoints[j]] = [endpoints[j], endpoints[i]];
-  }
+  // Use only first 3 endpoints for faster response
+  const limitedEndpoints = endpoints.slice(0, 3);
   
-  // Try each endpoint
-  for (const endpoint of endpoints) {
-    try {
-      const connection = new Connection(endpoint, 'confirmed');
-      const publicKey = new PublicKey(address);
-      balance = await connection.getBalance(publicKey);
-      
-      // Mark endpoint as successful
-      connectionPool.markEndpointSuccess(endpoint);
-      success = true;
-      break; // Exit loop on success
-    } catch (error) {
-      connectionPool.markEndpointFailed(endpoint, error);
-      logger.warn(`Error fetching balance with endpoint ${endpoint}: ${error.message}`);
-      // Continue to next endpoint
-    }
+  // Try multiple endpoints in parallel for faster response
+  const balancePromises = limitedEndpoints.map(endpoint => {
+    return new Promise(async (resolve) => {
+      try {
+        const connection = new Connection(endpoint, 'confirmed');
+        const publicKey = new PublicKey(address);
+        const bal = await connection.getBalance(publicKey);
+        resolve({ success: true, balance: bal, endpoint });
+      } catch (error) {
+        connectionPool.markEndpointFailed(endpoint, error);
+        resolve({ success: false, endpoint });
+      }
+    });
+  });
+  
+  // Race for the fastest response
+  const results = await Promise.all(balancePromises);
+  const successResult = results.find(result => result.success);
+  
+  if (successResult) {
+    // Mark endpoint as successful
+    connectionPool.markEndpointSuccess(successResult.endpoint);
+    balance = successResult.balance;
+    success = true;
   }
   
   // If all endpoints failed, try one more time with a direct fallback
@@ -388,13 +459,29 @@ const getSolBalance = async (address) => {
       const fallbackConnection = new Connection(fallbackEndpoint, 'confirmed');
       balance = await fallbackConnection.getBalance(new PublicKey(address));
       logger.info(`Successfully retrieved balance using fallback endpoint`);
+      success = true;
     } catch (fallbackError) {
       logger.error(`All endpoints failed for balance check: ${fallbackError.message}`);
-      // Return default balance
+      // Return default or cached balance
+      if (balanceCache.has(cacheKey)) {
+        const cachedData = balanceCache.get(cacheKey);
+        logger.warn(`Using cached balance after all endpoints failed: ${cachedData.balance}`);
+        return cachedData.balance;
+      }
     }
   }
   
-  return balance / LAMPORTS_PER_SOL;
+  const solBalance = balance / LAMPORTS_PER_SOL;
+  
+  // Cache successful result
+  if (success) {
+    balanceCache.set(cacheKey, {
+      balance: solBalance,
+      timestamp: now
+    });
+  }
+  
+  return solBalance;
 };
 
 // Get token information from Helius
@@ -585,9 +672,10 @@ const checkAndRepairUserWallet = async (user) => {
 /**
  * Get wallet balance using Helius API
  * @param {string} address - Wallet address
+ * @param {AbortSignal} signal - Optional abort controller signal
  * @returns {Promise<object>} - Balance data including SOL and tokens
  */
-const getWalletBalanceHelius = async (address) => {
+const getWalletBalanceHelius = async (address, signal) => {
   try {
     // Validate address to prevent errors
     if (!address || address === 'Wallet not available') {
@@ -606,7 +694,8 @@ const getWalletBalanceHelius = async (address) => {
     const options = {
       url: endpoint,
       method: 'GET',
-      timeout: API.TIMEOUT_MS
+      timeout: 1500,
+      signal
     };
     
     const data = await resilientRequest(options);

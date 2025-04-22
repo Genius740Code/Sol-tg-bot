@@ -39,26 +39,13 @@ const refreshHandler = async (ctx) => {
     const cachedData = refreshCache.get(cacheKey);
     const now = Date.now();
     
-    // Get user from database
-    const user = await userService.getUserByTelegramId(userId);
-    if (!user) {
-      // If we need to direct to start handler
-      if (typeof ctx.reply === 'function') {
-        // Check if startHandler is available
-        if (!startHandler) {
-          try {
-            startHandler = require('./startHandler').startHandler;
-          } catch (e) {
-            logger.error(`Could not load startHandler: ${e.message}`);
-            return ctx.reply('Please use /start to initialize your account.').catch(() => {});
-          }
-        }
-        return startHandler(ctx);
-      }
-      return;
-    }
+    // Start fetching SOL price immediately for maximum responsiveness
+    const solPricePromise = getSolPrice().catch(error => {
+      logger.error(`Error fetching SOL price: ${error.message}`);
+      return FEES.DEFAULT_SOL_PRICE || 100;
+    });
     
-    // Create menu keyboard (show this immediately)
+    // Create menu keyboard
     const menuKeyboard = Markup.inlineKeyboard([
       [
         Markup.button.callback('🪙 Buy', 'buy_token'),
@@ -91,9 +78,12 @@ const refreshHandler = async (ctx) => {
     let solBalance = 0;
     let solPrice = 0;
     let balanceUsd = 0;
-    let hasReferrer = user.referredBy !== null;
+    let hasReferrer = false;
     
-    // If we have cache that's still valid, use it for initial display
+    // Load user in parallel with message display
+    const userPromise = userService.getUserByTelegramId(userId);
+    
+    // If we have cache that's still valid, show it immediately
     let usedCache = false;
     if (cachedData && now - cachedData.timestamp < REFRESH_CACHE_TTL) {
       walletAddress = cachedData.walletAddress;
@@ -102,24 +92,14 @@ const refreshHandler = async (ctx) => {
       balanceUsd = cachedData.balanceUsd;
       hasReferrer = cachedData.hasReferrer;
       usedCache = true;
-    } else {
-      // Get active wallet info
-      try {
-        await checkAndRepairUserWallet(user);
-        const activeWallet = user.getActiveWallet();
-        walletAddress = activeWallet.address;
-      } catch (walletError) {
-        logger.error(`Error getting active wallet: ${walletError.message}`);
-        walletAddress = user.walletAddress || 'Wallet not available';
-      }
     }
     
-    // Generate fee text based on referrer status
+    // Show initial message with cache data if available, or loading indicators if not
     const feeText = hasReferrer ? 
       `🏷️ You have a referral discount: ${FEES.REFERRAL_PERCENTAGE.toFixed(3)}% trading fee (${FEES.REFERRAL_DISCOUNT}% off)` : 
       `💡 Refer friends to get ${FEES.REFERRAL_DISCOUNT}% off trading fees (${FEES.NORMAL_PERCENTAGE}% → ${FEES.REFERRAL_PERCENTAGE.toFixed(3)}%)`;
 
-    // Initial message text (will be updated with balance)
+    // Initial message text
     let messageText = 
       `🤖 *Crypto Trading Bot* 🤖\n\n` +
       `👛 Wallet: \`${walletAddress}\`\n\n`;
@@ -131,41 +111,62 @@ const refreshHandler = async (ctx) => {
         `📈 SOL Price: $${solPrice.toFixed(2)}\n\n` +
         `${feeText}`;
     } else {
-      // Show loading indicators
+      // Show loading indicators with a better message
       messageText += 
-        `💎 SOL Balance: --\n` +
-        `📈 SOL Price: --\n\n` +
+        `💎 SOL Balance: Loading...\n` +
+        `📈 SOL Price: Loading...\n\n` +
         `${feeText}`;
     }
 
     // Display initial menu immediately
     const sentMessage = await updateOrSendMessage(ctx, messageText, menuKeyboard);
+
+    // Get user data (already started loading)
+    const user = await userPromise;
     
-    // If we used cache, update in background and return
-    if (usedCache) {
-      // Update cache in background
-      setTimeout(() => {
-        updateBalanceData(ctx, userId, cacheKey, walletAddress, sentMessage);
-      }, 100);
-      return sentMessage;
+    if (!user) {
+      // If we need to direct to start handler
+      if (!startHandler) {
+        try {
+          startHandler = require('./startHandler').startHandler;
+        } catch (e) {
+          logger.error(`Could not load startHandler: ${e.message}`);
+          return ctx.reply('Please use /start to initialize your account.').catch(() => {});
+        }
+      }
+      return startHandler(ctx);
     }
     
-    // Otherwise, get fresh data and update the message
+    // Get updated hasReferrer status from fresh user data
+    hasReferrer = user.referredBy !== null;
+    
+    // Setup timeout promise to ensure we don't wait too long
+    const timeoutPromise = ms => new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Timeout')), ms));
+    
+    // Wallet check and balance fetching in parallel
     try {
-      // Fetch SOL price and balance in parallel
+      await checkAndRepairUserWallet(user);
+      const activeWallet = user.getActiveWallet();
+      walletAddress = activeWallet.address;
+    } catch (walletError) {
+      logger.error(`Error getting active wallet: ${walletError.message}`);
+      walletAddress = user.walletAddress || 'Wallet not available';
+    }
+    
+    // Start balance check now that we have wallet address
+    const balancePromise = (walletAddress && walletAddress !== 'Wallet not available' && walletAddress !== '--') ?
+      getSolBalance(walletAddress).catch(error => {
+        logger.error(`Error fetching SOL balance: ${error.message}`);
+        return 0;
+      }) : 
+      Promise.resolve(0);
+    
+    try {
+      // Get data with timeout - if it takes more than 2.5 seconds, use defaults
       const [newSolPrice, newSolBalance] = await Promise.all([
-        getSolPrice(),
-        (async () => {
-          try {
-            if (walletAddress && walletAddress !== 'Wallet not available' && walletAddress !== '--') {
-              return await getSolBalance(walletAddress);
-            }
-            return 0;
-          } catch (error) {
-            logger.error(`Error fetching SOL balance: ${error.message}`);
-            return 0;
-          }
-        })()
+        Promise.race([solPricePromise, timeoutPromise(2500)]).catch(() => FEES.DEFAULT_SOL_PRICE || 100),
+        Promise.race([balancePromise, timeoutPromise(2500)]).catch(() => 0)
       ]);
       
       // Calculate USD value
@@ -181,16 +182,35 @@ const refreshHandler = async (ctx) => {
         hasReferrer
       });
       
+      // Update fee text with current referrer status
+      const updatedFeeText = hasReferrer ? 
+        `🏷️ You have a referral discount: ${FEES.REFERRAL_PERCENTAGE.toFixed(3)}% trading fee (${FEES.REFERRAL_DISCOUNT}% off)` : 
+        `💡 Refer friends to get ${FEES.REFERRAL_DISCOUNT}% off trading fees (${FEES.NORMAL_PERCENTAGE}% → ${FEES.REFERRAL_PERCENTAGE.toFixed(3)}%)`;
+      
       // Update message text
       const updatedMessageText = 
         `🤖 *Crypto Trading Bot* 🤖\n\n` +
         `👛 Wallet: \`${walletAddress}\`\n\n` +
         `💎 SOL Balance: ${newSolBalance.toFixed(4)} SOL ($${newBalanceUsd.toFixed(2)})\n` +
         `📈 SOL Price: $${newSolPrice.toFixed(2)}\n\n` +
-        `${feeText}`;
+        `${updatedFeeText}`;
       
-      // Update message if we have chatId and messageId
-      if (sentMessage && sentMessage.chatId && sentMessage.messageId) {
+      // Update message if we have chat and message IDs
+      if (sentMessage && sentMessage.chat && sentMessage.message_id) {
+        await ctx.telegram.editMessageText(
+          sentMessage.chat.id,
+          sentMessage.message_id,
+          null,
+          updatedMessageText,
+          {
+            parse_mode: 'Markdown',
+            disable_web_page_preview: true,
+            reply_markup: menuKeyboard.reply_markup
+          }
+        ).catch(err => {
+          logger.debug(`Edit message error (probably same content): ${err.message}`);
+        });
+      } else if (sentMessage && sentMessage.chatId && sentMessage.messageId) {
         await ctx.telegram.editMessageText(
           sentMessage.chatId,
           sentMessage.messageId,
@@ -199,16 +219,17 @@ const refreshHandler = async (ctx) => {
           {
             parse_mode: 'Markdown',
             disable_web_page_preview: true,
-            ...menuKeyboard
+            reply_markup: menuKeyboard.reply_markup
           }
         ).catch(err => {
-          logger.error(`Error updating refresh message: ${err.message}`);
+          logger.debug(`Edit message error: ${err.message}`);
         });
       }
       
       return sentMessage;
     } catch (error) {
-      logger.error(`Error fetching balance data: ${error.message}`);
+      logger.error(`Error fetching or updating balance data: ${error.message}`);
+      // The initial message with loading indicators or cached data is already displayed
       return sentMessage;
     }
   } catch (error) {
@@ -219,67 +240,12 @@ const refreshHandler = async (ctx) => {
   }
 };
 
-// Background update function for balance data
-async function updateBalanceData(ctx, userId, cacheKey, walletAddress, sentMessage) {
-  try {
-    // Fetch SOL price and balance in parallel
-    const [newSolPrice, newSolBalance] = await Promise.all([
-      getSolPrice(),
-      (async () => {
-        try {
-          if (walletAddress && walletAddress !== 'Wallet not available' && walletAddress !== '--') {
-            return await getSolBalance(walletAddress);
-          }
-          return 0;
-        } catch (error) {
-          logger.error(`Error fetching SOL balance in background: ${error.message}`);
-          return 0;
-        }
-      })()
-    ]);
-    
-    // Get user for current referrer status
-    const user = await userService.getUserByTelegramId(userId);
-    if (!user) return;
-    
-    const hasReferrer = user.referredBy !== null;
-    
-    // Calculate USD value
-    const newBalanceUsd = newSolBalance * newSolPrice;
-    
-    // Update cache
-    refreshCache.set(cacheKey, {
-      timestamp: Date.now(),
-      walletAddress,
-      solBalance: newSolBalance,
-      solPrice: newSolPrice,
-      balanceUsd: newBalanceUsd,
-      hasReferrer
-    });
-    
-  } catch (error) {
-    logger.error(`Background balance update error: ${error.message}`);
-  }
-}
+// Function to set the start handler to avoid circular dependency
+const setStartHandler = (handler) => {
+  startHandler = handler;
+};
 
-// Clean up old cache entries
-setInterval(() => {
-  try {
-    const now = Date.now();
-    for (const [key, value] of refreshCache.entries()) {
-      if (now - value.timestamp > REFRESH_CACHE_TTL * 2) {
-        refreshCache.delete(key);
-      }
-    }
-  } catch (error) {
-    logger.error(`Cache cleanup error: ${error.message}`);
-  }
-}, 60000); // Run every minute
-
-// Expose the handler and utilities
-module.exports = { 
+module.exports = {
   refreshHandler,
-  setStartHandler: (handler) => {
-    startHandler = handler;
-  }
+  setStartHandler
 }; 

@@ -6,7 +6,6 @@ const { registerLimitOrderHandlers } = require('./handlers/limitOrderHandler');
 const { registerReferralHandlers } = require('./handlers/referralHandler');
 const { registerSettingsHandlers } = require('./handlers/settingsHandler');
 const { registerExtensionHandlers } = require('./handlers/extensionHandler');
-const { registerPremiumHandlers } = require('./handlers/premiumHandler');
 const { registerSniperHandlers } = require('./handlers/sniperHandler');
 const { registerCopyTradingHandlers, copyTradingHandler } = require('./handlers/copyTradingHandler');
 const { logger } = require('./database');
@@ -33,439 +32,256 @@ async function startBot() {
     registerReferralHandlers(bot);
     registerSettingsHandlers(bot);
     registerExtensionHandlers(bot);
-    registerPremiumHandlers(bot);
     registerSniperHandlers(bot);
     registerCopyTradingHandlers(bot);
     
     // Register wallet handlers
-    const { registerWalletHandlers } = require('./handlers/walletHandler');
+    const { registerWalletHandlers } = require('./handlers/wallet');
     registerWalletHandlers(bot);
     
     // Register direct refresh action
     bot.action('refresh_data', refreshHandler);
     
     // Add callback handlers for main menu buttons
-    bot.action('buy_token', async (ctx) => {
-      try {
-        await ctx.answerCbQuery();
-        return ctx.reply(
-          '💰 *Buy Token*\n\n' + 
-          'Please enter a valid Solana token address to buy, or search for popular tokens below:',
-          {
-            parse_mode: 'Markdown',
-            reply_markup: {
-              inline_keyboard: [
-                [
-                  { text: 'BONK', callback_data: 'search_token_BONK' },
-                  { text: 'PYTH', callback_data: 'search_token_PYTH' },
-                  { text: 'JTO', callback_data: 'search_token_JTO' }
-                ],
-                [
-                  { text: 'BOME', callback_data: 'search_token_BOME' },
-                  { text: 'WIF', callback_data: 'search_token_WIF' },
-                  { text: 'OLAS', callback_data: 'search_token_OLAS' }
-                ],
-                [
-                  { text: '🔍 Search by Name', callback_data: 'token_search' },
-                  { text: '🔙 Back', callback_data: 'refresh_data' }
-                ]
-              ]
-            }
-          }
-        );
-      } catch (error) {
-        logger.error(`Buy token error: ${error.message}`);
-        return ctx.reply('Sorry, there was an error starting the buy process.');
-      }
-    });
-    
-    // Action for searching tokens
-    bot.action(/search_token_(.+)/, async (ctx) => {
-      try {
-        await ctx.answerCbQuery();
-        const tokenSymbol = ctx.match[1];
-        await ctx.reply(`🔍 Searching for ${tokenSymbol}...`);
-        
-        // Here you would call your token search API
-        // For now just inform the user
-        return ctx.reply(`Please enter the token address for ${tokenSymbol} to continue.`);
-      } catch (error) {
-        logger.error(`Token search error: ${error.message}`);
-        return ctx.reply('Sorry, there was an error searching for tokens.');
-      }
+    bot.action('buy_token', (ctx) => {
+      // Use the imported buyTokenHandler
+      return buyTokenHandler(ctx);
     });
     
     bot.action('sell_token', async (ctx) => {
       try {
-        await ctx.answerCbQuery('Loading your tokens...');
-        
         // Get user
         const user = await userService.getUserByTelegramId(ctx.from.id);
+        
         if (!user) {
-          return ctx.reply('You need to create an account first. Please use /start command.');
+          return ctx.reply('You need to start the bot first with /start');
         }
         
-        // Get SOL price
-        let solPrice = 0;
-        try {
-          solPrice = await getSolPrice();
-        } catch (error) {
-          logger.error(`Error getting SOL price: ${error.message}`);
-          solPrice = 100; // Fallback price
-        }
-        
-        // Get user tokens
-        const tokens = await getAllUserTokens(user.walletAddress);
+        // Get user's tokens
+        const tokens = await getAllUserTokens(user.id);
         
         if (!tokens || tokens.length === 0) {
           return ctx.reply(
-            '💸 *Sell Tokens*\n\n' +
-            'You don\'t have any tokens in your wallet yet.\n' +
-            'Buy some tokens first!',
+            '❌ *No Tokens to Sell*\n\n' +
+            'You don\'t have any tokens to sell.\n' +
+            'Buy some tokens first using the Buy function.',
             {
               parse_mode: 'Markdown',
-              reply_markup: {
-                inline_keyboard: [
-                  [{ text: '💰 Buy Tokens', callback_data: 'buy_token' }],
-                  [{ text: '🔙 Back to Menu', callback_data: 'refresh_data' }]
-                ]
-              }
+              ...Markup.inlineKeyboard([
+                [Markup.button.callback('🪙 Buy Tokens', 'buy_token')],
+                [Markup.button.callback('🔙 Back to Menu', 'back_to_main_menu')]
+              ])
             }
           );
+        } else {
+          // Forward to token handler's sell function
+          const { sellTokenHandler } = require('./handlers/tokenHandler');
+          return sellTokenHandler(ctx);
         }
-        
-        // Create buttons for each token
-        const tokenButtons = tokens.map(token => {
-          const valueUsd = token.balance * token.price;
-          const valueSol = valueUsd / solPrice;
-          return [{
-            text: `${token.symbol} - ${token.balance.toFixed(2)} ($${valueUsd.toFixed(2)})`,
-            callback_data: `sell_specific_${token.address}`
-          }];
-        });
-        
-        // Add back button
-        tokenButtons.push([{ text: '🔙 Back to Menu', callback_data: 'refresh_data' }]);
-        
-        return ctx.reply(
-          '💸 *Sell Tokens*\n\n' +
-          'Select a token to sell:',
-          {
-            parse_mode: 'Markdown',
-            reply_markup: {
-              inline_keyboard: tokenButtons
-            }
-          }
-        );
       } catch (error) {
-        logger.error(`Sell token error: ${error.message}`);
-        return ctx.reply('Sorry, there was an error loading your tokens. Please try again later.');
-      }
-    });
-    
-    bot.action('view_positions', async (ctx) => {
-      try {
-        await ctx.answerCbQuery();
-        // Call the positions handler
-        return bot.context._handlers.positionsHandler(ctx);
-      } catch (error) {
-        logger.error(`View positions error: ${error.message}`);
-        return ctx.reply('Sorry, there was an error viewing your positions.');
-      }
-    });
-    
-    bot.action('view_limit_orders', async (ctx) => {
-      try {
-        await ctx.answerCbQuery();
-        return ctx.reply('Limit orders feature is coming soon!');
-      } catch (error) {
-        logger.error(`View limit orders error: ${error.message}`);
-        return ctx.reply('Sorry, there was an error accessing limit orders.');
-      }
-    });
-    
-    bot.action('view_referrals', async (ctx) => {
-      try {
-        await ctx.answerCbQuery();
-        // Call the referral handler
-        return bot.context._handlers.referralHandler(ctx);
-      } catch (error) {
-        logger.error(`View referrals error: ${error.message}`);
-        return ctx.reply('Sorry, there was an error accessing referrals.');
-      }
-    });
-    
-    bot.action('wallet_management', async (ctx) => {
-      try {
-        await ctx.answerCbQuery();
-        // Use the imported walletManagementHandler
-        const { walletManagementHandler } = require('./handlers/walletHandler');
-        return walletManagementHandler(ctx);
-      } catch (error) {
-        logger.error(`Wallet management error: ${error.message}`);
-        return ctx.reply('Sorry, there was an error accessing wallet management.');
-      }
-    });
-    
-    bot.action('settings', async (ctx) => {
-      try {
-        await ctx.answerCbQuery();
-        // Call the settings handler
-        return bot.context._handlers.settingsHandler(ctx);
-      } catch (error) {
-        logger.error(`Settings error: ${error.message}`);
-        return ctx.reply('Sorry, there was an error accessing settings.');
-      }
-    });
-    
-    bot.action('premium_features', async (ctx) => {
-      try {
-        await ctx.answerCbQuery();
-        // Call the premium features handler
-        const { premiumFeaturesHandler } = require('./handlers/premiumHandler');
-        return premiumFeaturesHandler(ctx);
-      } catch (error) {
-        logger.error(`Premium features error: ${error.message}`);
-        return ctx.reply('Sorry, there was an error accessing premium features.');
-      }
-    });
-    
-    bot.action('copy_trading', async (ctx) => {
-      try {
-        await ctx.answerCbQuery();
-        return copyTradingHandler(ctx);
-      } catch (error) {
-        logger.error(`Copy trading error: ${error.message}`);
-        return ctx.reply('Sorry, there was an error accessing copy trading.');
+        logger.error(`Error in sell token action: ${error.message}`);
+        return ctx.reply('❌ Sorry, there was an error. Please try again later.');
       }
     });
     
     bot.action('token_sniper', async (ctx) => {
       try {
-        await ctx.answerCbQuery();
-        const { sniperHandler } = require('./handlers/sniperHandler');
-        return sniperHandler(ctx);
+        // Use the imported handler
+        const { sniperMenuHandler } = require('./handlers/sniperHandler');
+        return sniperMenuHandler(ctx);
       } catch (error) {
-        logger.error(`Token sniper error: ${error.message}`);
-        return ctx.reply('Sorry, there was an error accessing the token sniper.');
+        logger.error(`Error in token sniper action: ${error.message}`);
+        return ctx.reply('❌ Sorry, there was an error. Please try again later.');
+      }
+    });
+    
+    bot.action('copy_trading', async (ctx) => {
+      try {
+        // Use the imported handler
+        return copyTradingHandler(ctx);
+      } catch (error) {
+        logger.error(`Error in copy trading action: ${error.message}`);
+        return ctx.reply('❌ Sorry, there was an error. Please try again later.');
+      }
+    });
+    
+    bot.action('view_positions', async (ctx) => {
+      try {
+        // Use the imported handler from positionHandler.js
+        const { viewPositionsHandler } = require('./handlers/positionHandler');
+        return viewPositionsHandler(ctx);
+      } catch (error) {
+        logger.error(`Error in view positions action: ${error.message}`);
+        return ctx.reply('❌ Sorry, there was an error. Please try again later.');
+      }
+    });
+    
+    bot.action('view_limit_orders', async (ctx) => {
+      try {
+        // Use the imported handler from limitOrderHandler.js
+        const { viewLimitOrdersHandler } = require('./handlers/limitOrderHandler');
+        return viewLimitOrdersHandler(ctx);
+      } catch (error) {
+        logger.error(`Error in view limit orders action: ${error.message}`);
+        return ctx.reply('❌ Sorry, there was an error. Please try again later.');
+      }
+    });
+    
+    bot.action('afk_mode', async (ctx) => {
+      try {
+        await ctx.answerCbQuery();
+        
+        // Check if bot is expired
+        const user = await userService.getUserByTelegramId(ctx.from.id);
+        
+        if (!user) {
+          return ctx.reply('You need to start the bot first with /start');
+        }
+        
+        // Use imported handler
+        const { afkModeHandler } = require('./handlers/settingsHandler');
+        return afkModeHandler(ctx);
+      } catch (error) {
+        logger.error(`Error in AFK mode action: ${error.message}`);
+        return ctx.reply('❌ Sorry, there was an error. Please try again later.');
       }
     });
     
     bot.action('bot_extension', async (ctx) => {
       try {
-        await ctx.answerCbQuery();
-        return ctx.reply(
-          '🔌 *Bot Extension*\n\n' + 
-          'Connect to our browser extension for faster trading:\n\n' +
-          '• One-click trading from any site\n' +
-          '• Real-time price alerts\n' +
-          '• Quick wallet access\n' +
-          '• Automatic token detection',
-          {
-            parse_mode: 'Markdown',
-            reply_markup: {
-              inline_keyboard: [
-                [
-                  { text: '🔗 Connect Extension', callback_data: 'connect_extension' },
-                  { text: '📥 Download', callback_data: 'download_extension' }
-                ],
-                [
-                  { text: '📱 Mobile App', callback_data: 'mobile_app' }
-                ],
-                [
-                  { text: '🔙 Back to Menu', callback_data: 'refresh_data' }
-                ]
-              ]
-            }
-          }
-        );
+        // Use the imported handler from extensionHandler.js
+        const { extensionHandler } = require('./handlers/extensionHandler');
+        return extensionHandler(ctx);
       } catch (error) {
-        logger.error(`Bot extension error: ${error.message}`);
-        return ctx.reply('Sorry, there was an error accessing the bot extension.');
+        logger.error(`Error in bot extension action: ${error.message}`);
+        return ctx.reply('❌ Sorry, there was an error. Please try again later.');
       }
     });
     
-    // Register basic extension actions
-    bot.action('connect_extension', async (ctx) => {
+    bot.action('view_referrals', async (ctx) => {
       try {
-        await ctx.answerCbQuery('Generating connection code...');
-        
-        // Generate a random connection code
-        const connectionCode = Math.random().toString(36).substring(2, 8).toUpperCase();
-        
-        // Store the code in user's settings (expiring in 5 minutes)
-        await userService.updateUserSettings(ctx.from.id, {
-          'extension.connectionCode': connectionCode,
-          'extension.codeExpiry': new Date(Date.now() + 5 * 60 * 1000)
-        });
-        
-        return ctx.reply(
-          '🔗 *Extension Connection*\n\n' +
-          'Enter this code in the extension to connect:\n\n' +
-          `\`${connectionCode}\`\n\n` +
-          'This code will expire in 5 minutes.',
-          {
-            parse_mode: 'Markdown',
-            reply_markup: {
-              inline_keyboard: [
-                [{ text: '🔙 Back to Extension', callback_data: 'bot_extension' }]
-              ]
-            }
-          }
-        );
+        // Use the imported handler from referralHandler.js
+        const { viewReferralsHandler } = require('./handlers/referralHandler');
+        return viewReferralsHandler(ctx);
       } catch (error) {
-        logger.error(`Extension connection error: ${error.message}`);
-        return ctx.reply('Sorry, there was an error generating a connection code.');
+        logger.error(`Error in view referrals action: ${error.message}`);
+        return ctx.reply('❌ Sorry, there was an error. Please try again later.');
       }
     });
     
-    bot.action('download_extension', async (ctx) => {
+    bot.action('wallet_management', async (ctx) => {
+      try {
+        // Use the imported walletManagementHandler
+        const { walletManagementHandler } = require('./handlers/wallet');
+        return walletManagementHandler(ctx);
+      } catch (error) {
+        logger.error(`Error in wallet management action: ${error.message}`);
+        return ctx.reply('❌ Sorry, there was an error. Please try again later.');
+      }
+    });
+    
+    bot.action('settings', async (ctx) => {
+      try {
+        // Use the imported handler from settingsHandler.js
+        const { settingsHandler } = require('./handlers/settingsHandler');
+        return settingsHandler(ctx);
+      } catch (error) {
+        logger.error(`Error in settings action: ${error.message}`);
+        return ctx.reply('❌ Sorry, there was an error. Please try again later.');
+      }
+    });
+    
+    // Add back to main menu handler
+    bot.action('back_to_main_menu', async (ctx) => {
       try {
         await ctx.answerCbQuery();
-        return ctx.reply(
-          '📥 *Download Extension*\n\n' +
-          'Our extension is available for:\n\n' +
-          '• Chrome/Brave\n' +
-          '• Firefox\n' +
-          '• Edge\n\n' +
-          'Download from the official store for your browser:',
-          {
-            parse_mode: 'Markdown',
-            reply_markup: {
-              inline_keyboard: [
-                [
-                  { text: 'Chrome Store', url: 'https://chrome.google.com/webstore' },
-                  { text: 'Firefox Add-ons', url: 'https://addons.mozilla.org' }
-                ],
-                [{ text: '🔙 Back to Extension', callback_data: 'bot_extension' }]
-              ]
-            }
-          }
-        );
-      } catch (error) {
-        logger.error(`Download extension error: ${error.message}`);
-        return ctx.reply('Sorry, there was an error accessing the download links.');
-      }
-    });
-    
-    bot.action('mobile_app', async (ctx) => {
-      try {
-        await ctx.answerCbQuery();
-        return ctx.reply(
-          '📱 *Mobile App*\n\n' +
-          'Get our mobile app for on-the-go trading:\n\n' +
-          '• Real-time trading\n' +
-          '• Price alerts\n' +
-          '• Portfolio tracking\n' +
-          '• Secure wallet\n\n' +
-          'Download from your app store:',
-          {
-            parse_mode: 'Markdown',
-            reply_markup: {
-              inline_keyboard: [
-                [
-                  { text: 'App Store', url: 'https://apps.apple.com' },
-                  { text: 'Google Play', url: 'https://play.google.com' }
-                ],
-                [{ text: '🔙 Back to Extension', callback_data: 'bot_extension' }]
-              ]
-            }
-          }
-        );
-      } catch (error) {
-        logger.error(`Mobile app error: ${error.message}`);
-        return ctx.reply('Sorry, there was an error accessing the mobile app information.');
-      }
-    });
-    
-    // Store handlers for reference
-    bot.context._handlers = {
-      positionsHandler: async (ctx) => {
-        return await positionsHandler(ctx);
-      },
-      referralHandler: async (ctx) => {
-        try {
-          await ctx.reply('⏳ Loading referral program...');
-          // Call the handler from registerReferralHandlers
-          return ctx.reply('🔄 Referral program is ready!');
-        } catch (error) {
-          logger.error(`Referral handler error: ${error.message}`);
-          return ctx.reply('Sorry, there was an error accessing the referral program.');
+        
+        // Check if user exists
+        const user = await userService.getUserByTelegramId(ctx.from.id);
+        
+        if (!user) {
+          return startHandler(ctx);
         }
-      },
-      settingsHandler: async (ctx) => {
+        
+        // Get wallet and SOL balance
+        let walletAddress = 'Wallet not available';
+        let solBalance = 0;
+        
         try {
-          await ctx.answerCbQuery();
-          // Create settings keyboard
-          const settingsKeyboard = Markup.inlineKeyboard([
-            [
-              Markup.button.callback('🔔 Notifications', 'settings_notifications'),
-              Markup.button.callback('🔐 Security', 'settings_security')
-            ],
-            [
-              Markup.button.callback('💰 Default Slippage', 'settings_slippage'),
-              Markup.button.callback('🌐 Language', 'settings_language')
-            ],
-            [Markup.button.callback('🔙 Back to Menu', 'refresh_data')]
-          ]);
-          
-          return ctx.reply(
-            '⚙️ *Settings*\n\n' +
-            'Configure your bot preferences:',
-            {
-              parse_mode: 'Markdown',
-              ...settingsKeyboard
-            }
-          );
+          const activeWallet = user.getActiveWallet ? user.getActiveWallet() : (user.wallets && user.wallets.length > 0 ? user.wallets.find(w => w.isActive) : null);
+          if (activeWallet && activeWallet.address) {
+            walletAddress = activeWallet.address;
+            solBalance = await getSolPrice(walletAddress).catch(() => 0);
+          }
         } catch (error) {
-          logger.error(`Settings handler error: ${error.message}`);
-          return ctx.reply('Sorry, there was an error accessing settings.');
+          logger.error(`Error getting wallet in back_to_main_menu: ${error.message}`);
         }
+        
+        // Get SOL price
+        const solPrice = await getSolPrice().catch(() => 100);
+        
+        // Calculate USD value
+        const balanceUsd = solBalance * solPrice;
+        
+        // Generate fee text based on referrer status
+        const hasReferrer = user.referredBy !== null;
+        const feeText = hasReferrer ? 
+          `🏷️ You have a referral discount: Trading fee ${config.REFERRAL_FEE}% (${config.REFERRAL_DISCOUNT}% off)` : 
+          `💡 Refer friends to get ${config.REFERRAL_DISCOUNT}% off trading fees (${config.NORMAL_FEE}% → ${config.REFERRAL_FEE}%)`;
+        
+        // Create menu keyboard
+        const menuKeyboard = Markup.inlineKeyboard([
+          [
+            Markup.button.callback('🪙 Buy', 'buy_token'),
+            Markup.button.callback('💰 Sell', 'sell_token')
+          ],
+          [
+            Markup.button.callback('🎯 Sniper', 'token_sniper'),
+            Markup.button.callback('📈 Copy Trade', 'copy_trading')
+          ],
+          [
+            Markup.button.callback('📊 Positions', 'view_positions'),
+            Markup.button.callback('⏰ Orders', 'view_limit_orders')
+          ],
+          [
+            Markup.button.callback('💤 AFK Mode', 'afk_mode'),
+            Markup.button.callback('🔌 Extension', 'bot_extension')
+          ],
+          [
+            Markup.button.callback('👥 Referrals', 'view_referrals'),
+            Markup.button.callback('👛 Wallets', 'wallet_management')
+          ],
+          [
+            Markup.button.callback('⚙️ Settings', 'settings'),
+            Markup.button.callback('🔄 Refresh', 'refresh_data')
+          ]
+        ]);
+        
+        // Send main menu
+        return ctx.reply(
+          `🤖 *Crypto Trading Bot* 🤖\n\n` +
+          `👛 Wallet: \`${walletAddress}\`\n\n` +
+          `💎 SOL Balance: ${solBalance.toFixed(4)} SOL ($${balanceUsd.toFixed(2)})\n` +
+          `📈 SOL Price: $${solPrice.toFixed(2)}\n\n` +
+          `${feeText}`,
+          {
+            parse_mode: 'Markdown',
+            reply_markup: menuKeyboard.reply_markup
+          }
+        );
+      } catch (error) {
+        logger.error(`Error in back to main menu action: ${error.message}`);
+        return ctx.reply('❌ Sorry, there was an error. Please try again later.');
       }
-    };
+    });
     
-    // Launch the bot
+    // Start the bot with polling
     await bot.launch();
-    logger.info('Bot started successfully');
-    
-    // Enable graceful stop with proper cleanup
-    const gracefulShutdown = async (signal) => {
-      logger.info(`${signal} received. Stopping bot...`);
-      
-      // Stop the bot first
-      bot.stop();
-      logger.info('Bot stopped successfully');
-      
-      // Close database connections safely
-      try {
-        logger.info('Stopping scheduled jobs...');
-        // Stop any scheduled jobs here if needed
-        logger.info('Scheduled jobs stopped successfully');
-        
-        logger.info('Closing database connection...');
-        // Close MongoDB connection if it's active
-        const mongoose = require('mongoose');
-        if (mongoose.connection.readyState !== 0) {
-          await mongoose.connection.close();
-          logger.info('MongoDB connection closed cleanly');
-        }
-      } catch (error) {
-        logger.error(`Error during shutdown: ${error.message}`);
-      }
-      
-      // Exit process after a short delay to allow logging to complete
-      setTimeout(() => {
-        logger.info(`${signal} shutdown completed`);
-        process.exit(0);
-      }, 500);
-    };
-    
-    // Register shutdown handlers
-    process.once('SIGINT', () => gracefulShutdown('SIGINT'));
-    process.once('SIGTERM', () => gracefulShutdown('SIGTERM'));
+    logger.info('Bot started successfully!');
+    return true;
   } catch (error) {
     logger.error(`Error starting bot: ${error.message}`);
-    process.exit(1);
+    throw error;
   }
 }
 
